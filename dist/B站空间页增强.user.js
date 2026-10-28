@@ -1,15 +1,16 @@
-/* eslint-disable */
-// 由 build.mjs 自动生成，请修改 src/ 下源码后重新构建。
 // ==UserScript==
 // @name         B站空间页增强（动态翻页/图文翻页/统一行高）
 // @name:zh-CN   B站空间页增强（动态翻页/图文翻页/统一行高）
-// @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      1.0.2
+// @namespace    https://github.com/dfgger433/bili-space-tools
+// @version      1.0.3
 // @description  单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @description:zh-CN 单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
-// @author       bili-space-tools
+// @author       dfgger433
 // @license      MIT
 // @icon         https://www.bilibili.com/favicon.ico
+// @homepageURL  https://github.com/dfgger433/bili-space-tools
+// @supportURL   https://github.com/dfgger433/bili-space-tools/issues
+// @source       https://github.com/dfgger433/bili-space-tools
 // @match        *://*.bilibili.com/*/dynamic
 // @match        *://*.bilibili.com/*/dynamic/*
 // @match        *://*.bilibili.com/*/upload/opus
@@ -22,6 +23,8 @@
 // @grant        GM_setValue
 // @noframes
 // ==/UserScript==
+/* eslint-disable */
+// 由 build.mjs 自动生成，请修改 src/ 下源码后重新构建。
 
 (() => {
   // src/shared/log.js
@@ -3294,7 +3297,7 @@
   }
 
   // src/scripts/bili-space-tools.js
-  var VERSION4 = "1.0.2";
+  var VERSION4 = "1.0.3";
   var SCOPE4 = "all";
   var GLOBAL_KEY3 = "__biliToolsAllLoaded__";
   var log5 = createLogger(SCOPE4);

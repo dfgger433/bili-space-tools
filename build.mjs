@@ -18,6 +18,9 @@ function header(meta) {
   push('author', meta.author);
   push('license', meta.license);
   push('icon', meta.icon);
+  if (meta.homepageURL) push('homepageURL', meta.homepageURL);
+  if (meta.supportURL) push('supportURL', meta.supportURL);
+  if (meta.source) push('source', meta.source);
   push('match', meta.match);
   push('run-at', meta.runAt);
   for (const g of meta.grants || ['none']) push('grant', g);
@@ -27,7 +30,8 @@ function header(meta) {
   return lines.join('\n') + '\n';
 }
 
-const bannerFor = (meta) => `/* eslint-disable */\n// 由 build.mjs 自动生成，请修改 src/ 下源码后重新构建。\n${header(meta)}`;
+// Greasy Fork 要求 metadata block 放在脚本开头；banner 注释放到 metadata 之后。
+const bannerFor = (meta) => `${header(meta)}/* eslint-disable */\n// 由 build.mjs 自动生成，请修改 src/ 下源码后重新构建。\n`;
 
 async function main() {
   await mkdir('dist', { recursive: true });

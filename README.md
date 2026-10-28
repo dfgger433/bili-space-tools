@@ -111,6 +111,7 @@ window.BILI_TOOLS.row.setClipPercent(27)
 
 ## 更新记录
 
+- `1.0.3`：发布元数据适配 Greasy Fork（metadata block 置顶、namespace/source 指向 GitHub、作者 dfgger433）。
 - `1.0.2`：图文分页条改为相对网格居中（修复第 2 页分页按钮偏左）。
 - `1.0.1`：统一行高改为自动行平均值 + 可调超出比例阈值（默认 27%，油猴菜单可设，0=关闭）；
   超过平均值的卡片使用 B 站默认封面裁剪，不再硬切；移除文字强行展开。
@@ -146,4 +147,5 @@ npm run build   # 生成 dist/B站空间页增强.user.js
 ## License
 
 [MIT](LICENSE)
+
 
