@@ -1,13 +1,13 @@
-// 生成“统一行高按平均值裁剪”的示意图（静态 HTML -> PNG）。
-// 用法：node test/demo/render-row-average-demo.mjs
+// 生成“按行平均值裁剪 + 可调超出比例”的示意图。
 import { chromium } from 'playwright-core';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { access } from 'node:fs/promises';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
-const HTML = path.join(HERE, 'row-average-demo.html');
-const OUT = path.join(ROOT, 'test', 'screenshots', 'row-average-demo.png');
+const HTML = path.join(HERE, 'row-average-ratio-demo.html');
+const OUT = path.join(ROOT, 'test', 'screenshots', 'row-average-ratio-demo.png');
 
 const CANDIDATES = [
   process.env.BILI_TEST_BROWSER,
@@ -20,7 +20,6 @@ async function main() {
   let executablePath = null;
   for (const p of CANDIDATES) {
     try {
-      const { access } = await import('node:fs/promises');
       await access(p);
       executablePath = p;
       break;

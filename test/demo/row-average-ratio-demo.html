@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>统一行高：按行平均值裁剪（超出比例阈值）</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 36px 44px 44px; width: 1800px; background: #f6f7f9; color: #18191c;
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif; }
+  h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: .5px; }
+  .sub { color: #61666d; font-size: 14px; line-height: 1.7; margin-bottom: 20px; }
+  h2 { font-size: 20px; margin: 28px 0 12px; }
+  .rules { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 28px; background: #fff; border: 1px solid #e3e5e7;
+    border-radius: 12px; padding: 15px 20px; font-size: 14px; line-height: 1.75; margin-bottom: 18px; }
+  .rules b { color: #0b64d8; }
+  code { background: #f1f3f5; padding: 1px 5px; border-radius: 4px; }
+  .ok { color: #137a3a; font-weight: 600; }
+  .bad { color: #b42318; font-weight: 600; }
+  .samples { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .sample { background: #fff; border: 1px solid #e3e5e7; border-radius: 12px; padding: 12px 14px; }
+  .sample h3 { margin: 0 0 6px; font-size: 15px; }
+  .sample .heights { font-size: 12px; color: #61666d; margin-bottom: 8px; }
+  .sample .stat { display: flex; gap: 20px; font-size: 13px; flex-wrap: wrap; }
+  .sample .stat b { font-size: 15px; }
+  .rowbox { position: relative; border-bottom: 2px solid #9aa0a6; }
+  .avgline { position: absolute; left: 0; right: 0; border-top: 2px dashed #e5484d; }
+  .avgline span { position: absolute; right: 0; top: -20px; font-size: 12px; color: #e5484d; background: #fff; padding: 0 5px; }
+  .card { position: absolute; top: 0; border-radius: 5px 5px 0 0; overflow: hidden; border: 1px solid rgba(0,0,0,.08); background: #fff; }
+  .card .cover { position: absolute; left: 0; right: 0; top: 0; background: linear-gradient(135deg,#9ec5ff,#5f92e8); }
+  .card .body { position: absolute; left: 0; right: 0; bottom: 0; background: #fff; padding: 4px; }
+  .card .line { height: 5px; border-radius: 3px; background: #d7dbe0; margin-bottom: 4px; }
+  .card .line.short { width: 60%; }
+  .card .num { position: absolute; right: 3px; top: 3px; font-size: 10px; color: #fff; background: rgba(0,0,0,.35); padding: 1px 4px; border-radius: 3px; }
+  .card .clip { position: absolute; left: 0; right: 0; background: repeating-linear-gradient(135deg, rgba(255,120,120,.75), rgba(255,120,120,.75) 5px, rgba(255,210,210,.75) 5px, rgba(255,210,210,.75) 10px); }
+  .card .clip::after { content: "裁剪"; position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); font-size: 11px; color: #a01b1b; background: rgba(255,255,255,.82); padding: 1px 5px; border-radius: 3px; }
+
+  .axis { background: #fff; border: 1px solid #e3e5e7; border-radius: 12px; padding: 18px 20px 12px; }
+  .axis .bar { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .axis .label { font-size: 13px; text-align: right; color: #444; }
+  .axis .track { position: relative; height: 26px; background: #f1f3f5; border-radius: 5px; overflow: hidden; }
+  .axis .clipzone { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(229,72,77,.25); border-right: 2px solid #e5484d; }
+  .axis .okzone { position: absolute; right: 0; top: 0; bottom: 0; background: rgba(101,197,138,.2); }
+  .axis .track span { position: absolute; top: 4px; font-size: 11px; color: #333; background: rgba(255,255,255,.75); padding: 0 4px; border-radius: 3px; }
+  .axis .scale { display: flex; justify-content: space-between; margin-left: 130px; font-size: 11px; color: #8a9099; }
+  .axis .marker { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #0b64d8; }
+  .axis .marker span { position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 11px; color: #0b64d8; white-space: nowrap; background: #fff; padding: 0 3px; }
+  .legend { display: flex; gap: 20px; font-size: 12px; color: #555; margin-top: 10px; }
+  .legend i { display: inline-block; width: 16px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+
+  .examples { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .example { background: #fff; border: 1px solid #e3e5e7; border-radius: 12px; padding: 14px; }
+  .example h3 { margin: 0 0 2px; font-size: 15px; }
+  .example .small { font-size: 12px; color: #61666d; margin-bottom: 8px; }
+  .example .rowbox { height: 280px; margin-bottom: 8px; }
+  .example .rowfoot { font-size: 12px; color: #61666d; }
+
+  .matrixwrap { background: #fff; border: 1px solid #e3e5e7; border-radius: 12px; padding: 16px 18px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { border: 1px solid #eceef0; padding: 6px; text-align: center; }
+  th { background: #f7f8fa; }
+  td.y { background: #ffe9e7; color: #b42318; font-weight: 600; }
+  td.n { background: #e9f8ee; color: #137a3a; font-weight: 600; }
+  td.dis { background: #f1f3f5; color: #8a9099; }
+  .note { margin-top: 12px; font-size: 12px; color: #61666d; line-height: 1.7; }
+  .reco { background: #fff7e8; border: 1px solid #ffd591; border-radius: 10px; padding: 12px 15px; margin-top: 18px; font-size: 13px; line-height: 1.75; color: #7a4b00; }
+  .reco b { color: #ad6800; }
+</style>
+</head>
+<body>
+  <h1>统一行高：按“行平均高度”裁剪（超出比例可调）</h1>
+  <div class="sub">平均值不是手动输入的：每行自动计算该行所有卡片自然高度的平均值 A。可调的是“最高卡片超出平均值的比例阈值”；阈值 = 0 表示停用（不裁剪）。</div>
+
+  <div class="rules">
+    <div><b>① 行平均值 A</b> = 该行所有卡片自然高度的平均（自动计算）。</div>
+    <div><b>② 超出比例</b> = (最高卡片 M − A) ÷ A × 100%。</div>
+    <div><b>③ 超出比例 ≤ 阈值</b>：视为“差距不大”，原始内容，行高 = M。</div>
+    <div><b>④ 超出比例 &gt; 阈值</b>：裁剪，行高 = A；只裁掉卡片底部高于 A 的部分。</div>
+    <div><b>⑤ 阈值 = 0</b>：停用平均值计算/裁剪，始终原始内容。</div>
+    <div>低于 A 的卡片保持原始内容（行高 A 时下方留白，不再强行展开文字）。</div>
+  </div>
+
+  <h2>一、示例行（自动平均值与超出比例）</h2>
+  <div class="samples" id="samples"></div>
+
+  <h2>二、比例阈值轴：每一行在 0–100% 阈值下的“裁 / 原”分界</h2>
+  <div class="axis" id="axis"></div>
+  <div class="legend">
+    <span><i style="background:rgba(229,72,77,.25);border:1px solid #e5484d"></i>阈值小于该行超出比例 → 裁剪</span>
+    <span><i style="background:rgba(101,197,138,.25);border:1px solid #65c58a"></i>阈值大于等于超出比例 → 原始</span>
+    <span><i style="background:#0b64d8"></i>当前候选阈值（蓝线）</span>
+  </div>
+
+  <h2>三、同一行在 0% / 30% / 75% 阈值下的视觉效果</h2>
+  <div class="examples" id="examples"></div>
+
+  <h2>四、候选阈值决策表</h2>
+  <div class="matrixwrap">
+    <table id="matrix"></table>
+    <div class="note">
+      说明：单元格“裁”= 该行会裁剪，行高 = 该行平均值 A，卡片底部高于 A 的部分被裁掉；“原”= 保留原始内容。
+      阈值 = 0 时不计算平均值、不裁剪，所以整列按“停用”处理。<br>
+      实测参考：B 站图文卡片自然高度约 150–650px，普通行内部差距通常较小，特别高的竖图会把某行最高值拉得很高。
+    </div>
+  </div>
+
+  <div class="reco">
+    <b>建议：</b>先试 <b>30%</b>（普适一些）；想让更多“只高一截”的行保持原始就调大到 40%–50%；想更积极压掉高竖图就调小到 20%–25%。<br>
+    阈值 = <b>0</b> 即完全停用平均值裁剪。<br>
+    请告诉我你要的百分比（如 30%），我按这个比例实现；如果“差距不大”的判定还要加别的条件（例如行内最高−最低的绝对像素上限），也可以一并说明。
+  </div>
+
+<script>
+  const scale = 0.42;
+  const rows = [
+    { id: 'A', name: '高竖图行', heights: [190, 260, 320, 470, 620] },
+    { id: 'B', name: '普通行（差距小）', heights: [300, 310, 330, 350, 360] },
+    { id: 'C', name: '中等差距行', heights: [220, 260, 300, 340, 380] },
+    { id: 'D', name: '极端竖图行', heights: [180, 220, 300, 520, 650] },
+  ];
+  const ratios = [0, 5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 100];
+  const candidate = 30;
+
+  const avg = (hs) => hs.reduce((a,b)=>a+b,0) / hs.length;
+  const max = (hs) => Math.max(...hs);
+  const excess = (hs) => (max(hs) - avg(hs)) / avg(hs) * 100;
+  const clipped = (hs, ratio) => ratio > 0 && excess(hs) > ratio;
+
+  function rowBox(hs, ratio, opts = {}) {
+    const A = avg(hs), M = max(hs), R = clipped(hs, ratio) ? A : M;
+    const clip = clipped(hs, ratio);
+    const visMax = Math.round(M * scale);
+    const box = document.createElement('div');
+    box.className = 'rowbox';
+    box.style.height = (visMax + 26) + 'px';
+    const gap = 8;
+    const cw = opts.cardW || 64;
+    const totalW = cw * hs.length + gap * (hs.length - 1);
+    const left0 = Math.max(0, Math.round(((opts.rowW || 430) - totalW) / 2));
+    hs.forEach((h, i) => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.style.left = (left0 + i * (cw + gap)) + 'px';
+      card.style.width = cw + 'px';
+      card.style.height = Math.round(h * scale) + 'px';
+      const coverH = Math.round(h * 0.78);
+      const cover = document.createElement('div');
+      cover.className = 'cover';
+      cover.style.height = coverH + 'px';
+      card.appendChild(cover);
+      const body = document.createElement('div');
+      body.className = 'body';
+      body.style.height = (h - coverH) + 'px';
+      body.innerHTML = '<div class="line"></div><div class="line short"></div>';
+      card.appendChild(body);
+      const num = document.createElement('div');
+      num.className = 'num';
+      num.textContent = h;
+      card.appendChild(num);
+      if (clip && h > A) {
+        const c = document.createElement('div');
+        c.className = 'clip';
+        c.style.top = Math.round(A * scale) + 'px';
+        c.style.height = Math.round((h - A) * scale) + 'px';
+        card.appendChild(c);
+      }
+      box.appendChild(card);
+    });
+    const line = document.createElement('div');
+    line.className = 'avgline';
+    line.style.top = Math.round(A * scale) + 'px';
+    line.innerHTML = '<span>平均值 A = ' + A.toFixed(1) + 'px</span>';
+    box.appendChild(line);
+    return { box, R: Math.round(R), clip, A };
+  }
+
+  // 示例行
+  const samples = document.getElementById('samples');
+  for (const row of rows) {
+    const el = document.createElement('div');
+    el.className = 'sample';
+    const A = avg(row.heights), M = max(row.heights), E = excess(row.heights);
+    el.innerHTML = '<h3>' + row.id + '. ' + row.name + '</h3><div class="heights">卡片自然高度：' + row.heights.join(' / ') + 'px</div>';
+    const rb = document.createElement('div');
+    el.appendChild(rb);
+    const r = rowBox(row.heights, 0, { rowW: 430, cardW: 56 });
+    r.box.style.height = (Math.round(M*scale)+18)+'px';
+    rb.appendChild(r.box);
+    const stat = document.createElement('div');
+    stat.className = 'stat';
+    stat.innerHTML = '<span>平均值 A = <b>' + A.toFixed(1) + 'px</b></span><span>最高 M = <b>' + M + 'px</b></span><span>超出比例 = <b>' + E.toFixed(1) + '%</b></span>';
+    el.appendChild(stat);
+    samples.appendChild(el);
+  }
+
+  // 阈值轴
+  const axis = document.getElementById('axis');
+  for (const row of rows) {
+    const E = excess(row.heights);
+    const line = document.createElement('div');
+    line.className = 'bar';
+    line.innerHTML = '<div class="label">' + row.id + ' · 超出 ' + E.toFixed(1) + '%</div>';
+    const track = document.createElement('div');
+    track.className = 'track';
+    const clipzone = document.createElement('div');
+    clipzone.className = 'clipzone';
+    clipzone.style.width = E.toFixed(2) + '%';
+    track.appendChild(clipzone);
+    const okzone = document.createElement('div');
+    okzone.className = 'okzone';
+    okzone.style.width = (100 - E).toFixed(2) + '%';
+    track.appendChild(okzone);
+    const marker = document.createElement('div');
+    marker.className = 'marker';
+    marker.style.left = candidate + '%';
+    marker.innerHTML = '<span>候选 ' + candidate + '%</span>';
+    track.appendChild(marker);
+    const label = document.createElement('span');
+    label.style.left = Math.min(97, Math.max(1, E)) + '%';
+    label.textContent = clipped(row.heights, candidate) ? '裁' : '原';
+    track.appendChild(label);
+    line.appendChild(track);
+    axis.appendChild(line);
+  }
+  const scaleEl = document.createElement('div');
+  scaleEl.className = 'scale';
+  [0,25,50,75,100].forEach(v => { const s = document.createElement('span'); s.textContent = v + '%'; scaleEl.appendChild(s); });
+  axis.appendChild(scaleEl);
+
+  // 视觉对比：0% / 30% / 75%
+  const examples = document.getElementById('examples');
+  for (const ratio of [0, 30, 75]) {
+    const el = document.createElement('div');
+    el.className = 'example';
+    const row = rows[0];
+    const A = avg(row.heights);
+    el.innerHTML = '<h3>阈值 = ' + (ratio === 0 ? '0%（停用）' : ratio + '%') + '</h3><div class="small">示例行 A：190 / 260 / 320 / 470 / 620，A = ' + A.toFixed(1) + 'px，超出 ' + excess(row.heights).toFixed(1) + '%</div>';
+    const rb = document.createElement('div');
+    el.appendChild(rb);
+    const r = rowBox(row.heights, ratio, { rowW: 430, cardW: 64 });
+    rb.appendChild(r.box);
+    const foot = document.createElement('div');
+    foot.className = 'rowfoot';
+    foot.innerHTML = r.clip
+      ? '超出比例 &gt; 阈值 → <span class="bad">裁剪</span>：行高 = A = ' + r.A.toFixed(1) + 'px'
+      : (ratio === 0 ? '<span class="ok">停用</span>：行高 = 最高 620px' : '超出比例 ≤ 阈值 → <span class="ok">原始</span>：行高 = 最高 620px');
+    el.appendChild(foot);
+    examples.appendChild(el);
+  }
+
+  // 决策表
+  const table = document.getElementById('matrix');
+  let html = '<thead><tr><th>示例行 / 超出比例</th>' + ratios.map(r => '<th>' + (r === 0 ? '0<br>停用' : r + '%') + '</th>').join('') + '</tr></thead><tbody>';
+  for (const row of rows) {
+    const E = excess(row.heights);
+    html += '<tr><th>' + row.id + ' · ' + E.toFixed(1) + '%</th>';
+    for (const r of ratios) {
+      if (r === 0) html += '<td class="dis">停用</td>';
+      else if (clipped(row.heights, r)) html += '<td class="y">裁</td>';
+      else html += '<td class="n">原</td>';
+    }
+    html += '</tr>';
+  }
+  html += '</tbody>';
+  table.innerHTML = html;
+</script>
+</body>
+</html>
