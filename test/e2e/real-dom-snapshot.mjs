@@ -9,7 +9,7 @@ import { startServer } from './server.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
-const SCRIPT = path.join(ROOT, 'dist', '01-动态翻页.user.js');
+const SCRIPT = path.join(ROOT, 'dist', 'B站空间页增强.user.js');
 const SHOTS = path.join(ROOT, 'test', 'screenshots');
 const SNAPSHOT_ROUTE = '/440900637/dynamic?snapshot=1';
 
@@ -70,6 +70,9 @@ async function main() {
       listEl.__vue__ = vm;
     });
 
+    await page.evaluate(() => {
+      window.__BILI_TOOLS_MODULES__ = { dyn: true, opus: false, row: false };
+    });
     await page.addScriptTag({ path: SCRIPT });
     await page.waitForFunction(() => window.BILI_TOOLS?.dyn?.active === true, null, { timeout: 20000 });
     await page.waitForTimeout(400);

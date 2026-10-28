@@ -36,6 +36,8 @@ const LOAD_TIMEOUT = 20000;
 
 const log = createLogger(SCOPE);
 const capture = createCaptureState();
+let running = false;
+let mainTimer = null;
 
 const state = {
   active: false,
@@ -105,16 +107,19 @@ function maybeBoot() {
 }
 
 async function boot() {
+  if (!running) return;
   if (state.active || state.booting || !isOpusRoute()) return;
   state.booting = true;
   try {
     startStyle();
     const feed = await waitForElement('.opus-feed', { timeout: BOOT_TIMEOUT }).catch(() => null);
+    if (!running) return;
     if (!feed) {
       log.info('未找到 .opus-feed，稍后重试');
       return;
     }
     const ready = await waitForData(15000);
+    if (!running) return;
     if (!ready) {
       log.info('图文列表暂无可接管的数据（未登录 / 空列表），稍后重试');
       return;
@@ -736,23 +741,55 @@ function exposeDebug() {
   };
 }
 
-function main() {
+function start() {
+  if (running) return;
+  running = true;
+  window[GLOBAL_KEY] = { version: VERSION, startedAt: Date.now() };
   startStyle();
   installCapture(onCapture);
   exposeDebug();
   registerCompressionMenu();
   window.addEventListener('popstate', watchRoute);
   window.addEventListener('hashchange', watchRoute);
-  setInterval(watchRoute, 500);
+  mainTimer = setInterval(watchRoute, 500);
   watchRoute();
 }
 
+function stop() {
+  if (!running) return;
+  running = false;
+  if (mainTimer) {
+    clearInterval(mainTimer);
+    mainTimer = null;
+  }
+  window.removeEventListener('popstate', watchRoute);
+  window.removeEventListener('hashchange', watchRoute);
+  teardown();
+  state.booting = false;
+  state.nextBootAt = 0;
+  state.routeKey = '';
+  if (menuCommandId !== null && typeof GM_unregisterMenuCommand === 'function') {
+    try {
+      GM_unregisterMenuCommand(menuCommandId);
+    } catch {
+      /* ignore */
+    }
+    menuCommandId = null;
+    menuCommandName = '';
+  }
+  delete window[GLOBAL_KEY];
+  log.info('图文翻页脚本已停止');
+}
+
+export { start, stop, VERSION };
+
 const GLOBAL_KEY = '__biliToolsOpusLoaded__';
-if (!window[GLOBAL_KEY]) {
-  window[GLOBAL_KEY] = { version: VERSION, startedAt: Date.now() };
-  main();
-} else {
-  // 已经注入过：保留原实例的调试入口，不要用当前空状态覆盖
-  log.debug('opus 脚本已注入，跳过重复初始化');
+if (!__BILI_TOOLS_COMBINED__) {
+  if (!window[GLOBAL_KEY]) {
+    start();
+  } else {
+    // 已经注入过：保留原实例的调试入口，不要用当前空状态覆盖
+    log.debug('opus 脚本已注入，跳过重复初始化');
+  }
 }
 

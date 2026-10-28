@@ -1,49 +1,28 @@
-// 每个交付脚本的元数据与入口配置。
-// 版本号在每次交付时递增；构建时注入到 UserScript 头。
+// 主分支唯一交付脚本的元数据与入口配置。
+// 单独脚本（动态翻页 / 图文翻页 / 统一行高）保留在各自维护分支；主分支打包为一个脚本。
 export const scripts = [
   {
-    id: 'dyn-pagination',
-    entry: 'src/scripts/dyn-pagination.js',
-    outfile: 'dist/01-动态翻页.user.js',
+    id: 'bili-space-tools',
+    entry: 'src/scripts/bili-space-tools.js',
+    outfile: 'dist/B站空间页增强.user.js',
+    combined: true,
     meta: {
-      name: 'B站动态翻页（每页12条）',
-      nameZh: 'B站动态翻页（每页12条）',
+      name: 'B站空间页增强（动态翻页/图文翻页/统一行高）',
+      nameZh: 'B站空间页增强（动态翻页/图文翻页/统一行高）',
       namespace: 'https://github.com/bili-space-tools/bili-space-tools',
-      version: '0.2.1',
-      description: '把 B 站用户空间动态页改为翻页浏览，每页 12 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生分页样式。',
-      descriptionZh: '把 B 站用户空间动态页改为翻页浏览，每页 12 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生分页样式。',
+      version: '1.0.0',
+      description: '单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。',
+      descriptionZh: '单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。',
       author: 'bili-space-tools',
       license: 'MIT',
       icon: 'https://www.bilibili.com/favicon.ico',
       match: [
         '*://*.bilibili.com/*/dynamic',
         '*://*.bilibili.com/*/dynamic/*',
-      ],
-      runAt: 'document-idle',
-      grants: ['none'],
-      noframes: true,
-    },
-  },
-  {
-    id: 'opus-pagination',
-    entry: 'src/scripts/opus-pagination.js',
-    outfile: 'dist/02-图文翻页.user.js',
-    meta: {
-      name: 'B站图文翻页（每页20条）',
-      nameZh: 'B站图文翻页（每页20条）',
-      namespace: 'https://github.com/bili-space-tools/bili-space-tools',
-      version: '0.4.0',
-      description: '把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式；油猴菜单里可切换图片压缩。',
-      descriptionZh: '把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式；油猴菜单里可切换图片压缩。',
-      author: 'bili-space-tools',
-      license: 'MIT',
-      icon: 'https://www.bilibili.com/favicon.ico',
-      match: [
         '*://*.bilibili.com/*/upload/opus',
         '*://*.bilibili.com/*/upload/opus/*',
       ],
       runAt: 'document-start',
-      // 用 unsafeWindow 访问页面 XHR / Vue 实例；菜单/设置走 GM API
       grants: [
         'unsafeWindow',
         'GM_registerMenuCommand',
@@ -54,32 +33,4 @@ export const scripts = [
       noframes: true,
     },
   },
-  {
-    id: 'opus-uniform-row',
-    entry: 'src/scripts/opus-uniform-row.js',
-    outfile: 'dist/03-图文统一行高.user.js',
-    meta: {
-      name: 'B站图文统一行高（独立脚本）',
-      nameZh: 'B站图文统一行高（独立脚本）',
-      namespace: 'https://github.com/bili-space-tools/bili-space-tools',
-      version: '0.3.1',
-      description: '依赖“B站图文翻页”脚本的网格，只统一每行卡片高度并展开被省略的文字；不包含分页/菜单/预取。',
-      descriptionZh: '依赖“B站图文翻页”脚本的网格，只统一每行卡片高度并展开被省略的文字；不包含分页/菜单/预取。',
-      author: 'bili-space-tools',
-      license: 'MIT',
-      icon: 'https://www.bilibili.com/favicon.ico',
-      match: [
-        '*://*.bilibili.com/*/upload/opus',
-        '*://*.bilibili.com/*/upload/opus/*',
-      ],
-      runAt: 'document-idle',
-      grants: ['none'],
-      noframes: true,
-    },
-  },
 ];
-
-
-
-
-

@@ -8,7 +8,7 @@ import { startServer } from './server.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
-const SCRIPT = path.join(ROOT, 'dist', '01-动态翻页.user.js');
+const SCRIPT = path.join(ROOT, 'dist', 'B站空间页增强.user.js');
 const SHOTS = path.join(ROOT, 'test', 'screenshots');
 
 const CANDIDATES = [
@@ -80,6 +80,9 @@ async function main() {
 
     const ours = await context.newPage();
     await ours.goto(`${server.url}/440900637/dynamic?total=25`, { waitUntil: 'load' });
+    await ours.evaluate(() => {
+      window.__BILI_TOOLS_MODULES__ = { dyn: true, opus: false, row: false };
+    });
     await ours.addScriptTag({ path: SCRIPT });
     await ours.waitForFunction(() => window.BILI_TOOLS?.dyn?.active === true, null, { timeout: 20000 });
     await ours.waitForTimeout(400);

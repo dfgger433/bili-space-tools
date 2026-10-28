@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
-const SCRIPT = path.join(ROOT, 'dist', '03-图文统一行高.user.js');
+const SCRIPT = path.join(ROOT, 'dist', 'B站空间页增强.user.js');
 const URL = process.env.BILI_LIVE_OPUS_URL || 'https://space.bilibili.com/631063962/upload/opus';
 
 const CANDIDATES = [
@@ -43,7 +43,10 @@ async function main() {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
     locale: 'zh-CN',
   });
-  // 只注入 03，不注入 02
+  // 单脚本：只启用统一行高模块
+  await context.addInitScript((cfg) => {
+    window.__BILI_TOOLS_MODULES__ = cfg;
+  }, { dyn: false, opus: false, row: true });
   await context.addInitScript({ path: SCRIPT });
   const page = await context.newPage();
   const errors = [];

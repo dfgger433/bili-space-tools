@@ -1,98 +1,50 @@
-# 实施计划：B站空间页增强（动态翻页 / 图文翻页 / 行高统一 / 显示顺序）
+# 实施计划：B站空间页增强（主分支单脚本）
 
-> 本文件是 2026-10-28 经用户批准的计划的落盘版本。进度见 [TASKS.md](./TASKS.md)，调研依据见 [RESEARCH.md](./RESEARCH.md)，测试说明见 [TESTING.md](./TESTING.md)。
+## 总体架构
 
-## 交付节奏（一部分一交付）
+主分支只交付一个 userscript（`dist/B站空间页增强.user.js`），包含三个内部模块：
 
-- 一次只交付一个阶段的可安装 userscript，用户实测通过后再进入下一阶段。
-- 每阶段产物：`dist/NN-*.user.js` + 文档更新 + git commit/tag + 手动验收清单。
-- 阶段 5（翻译按钮）功能定义未确认，暂不实现。
+1. `dyn` 动态翻页（`/dynamic`，12 条/页）
+2. `opus` 图文翻页（`/upload/opus`，20 条/页，Vue/网络双通道）
+3. `row` 统一行高（`/upload/opus`，原生克隆 / 02 分页网格双模式）
 
-| 阶段 | 页面 | 功能 | 关键验收 |
-|---|---|---|---|
-| 1 | `space.bilibili.com/<uid>/dynamic[/…]` | 翻页，每页 12 条（与 B 站自动加载条数一致） | 首屏 1–12 条；下一页 13–24；可跳页；末页禁用；切 tab/刷新回第 1 页；保留原生自动加载作为下一页预取 |
-| 2 | `space.bilibili.com/<uid>/upload/opus[/…]` | 翻页，每页 42 条 | 每页 42 条（末页除外）；翻页/跳页；卡片视觉保持原生 |
-| 3 | 同阶段 2 | 同一行卡片高度统一（以该行最高为准） | 行内卡片底边对齐；可开关 |
-| 4 | 同阶段 2 | 左→右 最新→最旧，上→下 最新→最旧 | 按日期倒序 + 行优先排布；可开关 |
-| 5 | 待定 | 翻译按钮（B 站原生按钮样式） | 需求待确认 |
+`src/scripts/bili-space-tools.js` 负责：
+- 按 URL 决定启动哪些模块；
+- 注册油猴菜单：三个模块各自“开/关”，图片压缩仍由 opus 模块注册；
+- 开关持久化到 `biliTools:modules`（GM 存储，localStorage 兜底）；
+- 开关即时 start/stop，并处理 02/03 切换（02 停 → 03 原生克隆；03 停 → 02 恢复瀑布流）；
+- SPA 路由变化时重新应用；
+- 暴露 `window.BILI_TOOLS.all` 调试入口。
 
-## 1. 阶段 1：动态页翻页（本轮交付）
+单脚本带 GM 权限（`unsafeWindow`、菜单、存储）；页面 Vue/XHR 通过 `unsafeWindow`/`pageDocument` 访问，
+DOM 操作在脚本上下文完成。三个模块互不依赖，单独脚本仍保留在维护分支。
 
-- 文件：`src/scripts/dyn-pagination.js` → `dist/01-动态翻页.user.js`
-- match：`*://*.bilibili.com/*/dynamic`、`*://*.bilibili.com/*/dynamic/*`
-- `@grant none`、`@run-at document-idle`、`@noframes`
+## 模块细节
 
-**数据与分页**
+### 动态翻页
 
-1. 等待 `.bili-dyn-list__items` 与 `document.querySelector('.bili-dyn-list').__vue__`，拿到列表 VM。
-2. `PAGE_SIZE = 12`（用户反馈：与 B 站每次自动加载的 12 条对齐）；`vm.list` 顺序即 DOM 顺序（`.bili-dyn-list__item`）。
-3. 只显示 `[(page-1)*12, page*12)` 的项，其余 `display:none`；MutationObserver 在列表变化后**立即**重新套用（预取的新条目在下一次绘制前隐藏）。
-4. 需要更多数据时调 `vm.loadmore()`（兼容 `vm._getList('NEXT')`），用 `vm.$nextTick` 等待渲染；`vm.status === 'NO_MORE'` 即末页。
-5. **保留 B 站原生的滚到底自动加载**：滚到当前页底部时预取下一页 12 条；原生加载条隐藏，分页条不被顶动。
-6. `vm.status` 为 `EMPTY` 或列表为空时不接管；`ERROR/PAUSED` 允许通过分页按钮重试。
-7. 切换 全部/视频 tab、刷新、SPA 切 UP 主：重置到第 1 页或重新初始化。
-8. 分页条 1:1 复刻 B 站 `VPagenation` 的 DOM/class（`vui_pagenation`、`vui_button`、`vui_pagenation-go`），暗色模式走 CSS 变量。
+- 复用动态列表 Vue 2 实例或 DOM，本地分页，不新增请求。
+- 每页 12 条，原生分页条，保留原生自动加载做下一页预取。
+- `start/stop` 幂等；停止恢复原生列表。
 
-**回退**
+### 图文翻页
 
-- 找不到 VM / 方法缺失：纯 DOM 模式（滚到底 + 派发 scroll 触发原生加载，MutationObserver 等新节点）。
-- 任何分支都不新增 API 请求，不涉及 wbi/风控。
+- Vue 实例优先，网络抓包回退；不修改响应。
+- 每页 20 条，原生卡片/分页条，原生自动加载预取。
+- 图片压缩设置独立（`biliTools:opus`），由 opus 模块菜单控制。
+- `start/stop` 幂等；停止恢复原生 feed。
 
-**验收**
+### 统一行高
 
-1. 首屏仅 1–12 条可见。
-2. 滚到当前页底部：B 站原生自动加载预取 12 条（改为隐藏），当前页仍只显示 12 条，分页条位置不跳动。
-3. 下一页显示 13–24（通常已预取、即时打开）；上一页即时回退。
-4. 跳至第 5 页顺序加载并停在 49–60，有进度提示。
-5. 末页后下一页禁用、页数固定。
-6. 切 tab / 刷新 / 换 UP 主后回第 1 页且不重复注入。
-7. 展开评论、图片灯箱、暗色模式正常；控制台无报错。
+- 单独：克隆原生所有已加载 `.item` 到自己的网格；原生 feed 隐藏但保留自动加载；
+  `childList/characterData` + 图片加载 + resize + 3 秒看门狗持续重排。
+- 与 02 同开：接管 `.bt-opus-grid`（`mode: "bt"`），按行等高，02 翻页后重新应用。
+- 封面保比例 `@640w.webp` + `object-fit: contain`；行高富余展开省略文字；过高竖图导致整行拉高、其余留白。
+- 停止：原生模式恢复 feed；bt 模式清理行内样式并触发 02 重渲染。
 
-## 2. 阶段 2：图文页翻页（20 条/页，v0.1.2 已实现）
+## 阶段
 
-- 文件：`dist/02-图文翻页.user.js`；match：`*://*.bilibili.com/*/upload/opus`、`*://*.bilibili.com/*/upload/opus/*`；`@run-at document-start`。
-- **每页 20 条**（2026-10-28 实测 B 站图文每次自动加载 20 条；用户确认按 20 实现），**保留原生自动加载**作为下一页预取。
-- 数据双通道（`src/opus/adapter.js`）：
-  1. Vue 实例：从 `#app.__vue_app__._container._vnode`（生产环境没有 `_instance`）遍历 vnode，定位 `__name === "WaterfallGrid"`（或按 `props.list` 形状），读取原生 `width/height/columnWidth` 与 `vnode.props.onLoadMore`；
-  2. 抓包：`installCapture()` 只读观察页面自身对 `/x/polymer/web-dynamic/v1/opus/feed/space` 的 XHR/fetch，自行换算卡片尺寸；加载更多退化为滚到底触发页面自身的加载。
-- 接管渲染：给 `.opus` 加 `.bili-tools-opus-active` 隐藏原生 `.opus-feed`（保留其数据/请求/滚动逻辑），在 `.opus-body` 的 feed 后插入自己的网格；卡片用原生 class 重建（`src/opus/cards.js`）。
-- 布局复刻原生 `WaterfallGrid`（`src/opus/layout.js`）：列宽公式、前 10 条行优先 + 之后最短列、容器高度；窗口缩放按原生公式重排。
-- 预取：滚到底触发原生加载的 20 条不会渲染进当前页（渲染 key 只看当前页切片），分页条位置不变；点下一页即时打开。
-- 封面使用 B 站图床缩略图（`@640w.webp`），并提供“图片压缩”开关：同一个脚本注册到 Tampermonkey 扩展菜单（`GM_registerMenuCommand`）；脚本通过 `unsafeWindow` 访问页面 XHR / Vue 实例，页面内不显示开关。
-- 分页条放 `.opus-footer`，复用 `src/shared/pager.js`；跳页需要时顺序加载（`onLoadMore`），远跳先确认；切 tab/刷新回第 1 页。
-- 两通道都失败时完全不接管；`ERROR/PAUSED` 允许重试；重复注入只保留首个实例的调试入口。
-- 复用 `src/shared/`：`pager.js`、`dom.js`、`log.js`、`style.js`、`toast.js`（均已通过阶段 1 测试）。
-- 测试：`npm run test:e2e:opus`（Vue 通道、网络通道、预取、切 tab、resize、重复注入）+ 单元测试（布局/高度/URL/分页）。
-
-## 3. 阶段 3：统一行高脚本（v0.3.1，独立 + 与 02 兼容）
-
-- **独立脚本** `03-图文统一行高.user.js`：**不依赖 02**。把原生 WaterfallGrid 里所有已加载的 `.item` 卡片克隆到自己的网格，
-  原生 `.opus-feed` 隐藏但保留自动加载；源卡片变化（滚动加载/tab/翻译/原生重渲染）后重新克隆并统一行高。
-- `layoutRows` 行布局：行高 = 行内最高；封面用 `@640w.webp` 保比例图 + `object-fit: contain`，不裁剪。
-- 行高富余时展开被省略的标题/正文，没内容则留白；纯文字卡片灰色背景撑满行高。
-- 03 单跑走原生克隆；02 在用时接管 02 的分页网格；02+03 兼容，两个功能都生效。
-- 03 找不到图文网格时不改动页面。
-
-## 4. 阶段 4：显示顺序（无需实现）
-
-- B 站图文默认已按日期倒序（左→右、上→下均为新到旧），不再增加 04 排序脚本。
-
-## 5. 阶段 5：翻译按钮（待确认）
-
-- 待确认：翻译对象、目标语言、翻译来源（官方 AI 翻译接口 / 第三方）、交互与缓存。
-- 样式基准：`vui_button`、`vui_icon`、`sic-BDC-*`、`--brand_blue` 等原生 class/变量。
-
-## 6. 工程约定
-
-- `src/shared/` 放共享逻辑；esbuild 打包成 IIFE userscript（不压缩，保留可读性）。
-- 每个交付脚本都带完整 UserScript 头；安装新阶段时禁用上一阶段即可。
-- 调试：`window.BILI_TOOLS` 暴露状态与自检；`localStorage["biliTools:debug"]="1"` 打日志。
-- 测试：`node --test` 单元测试 + `playwright-core`（本机 Chrome）假页 e2e + 截图；真实登录场景由用户实测。
-
-
-
-
-
-
-
-
+1. 阶段 1/2/3 已完成，单独脚本在 `fix/dynamic-page-12`、`feat/opus-pagination`、`feat/opus-uniform-row` 分支维护。
+2. 阶段 4（单脚本 + 三模块开关）已完成。
+3. 阶段 5（显示顺序）无需实现：B 站默认已是日期倒序。
+4. 阶段 6（翻译按钮）待确认需求：翻译对象/目标语言/来源/交互；样式用 B 站原生 `vui_button` / `vui_icon`。

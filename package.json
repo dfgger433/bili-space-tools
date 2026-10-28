@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "B站空间页增强 userscripts（动态翻页 / 图文翻页 / 行高统一 / 显示顺序）",
+  "description": "B站空间页增强单脚本（动态翻页 / 图文翻页 / 统一行高，三模块可分别开关）",
   "scripts": {
     "build": "node build.mjs",
     "test": "node --test \"test/unit/*.test.mjs\"",

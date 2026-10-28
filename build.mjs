@@ -41,6 +41,9 @@ async function main() {
       write: false,
       charset: 'utf8',
       legalComments: 'none',
+      define: {
+        __BILI_TOOLS_COMBINED__: script.combined ? 'true' : 'false',
+      },
       banner: { js: bannerFor(script.meta) },
       logLevel: 'warning',
     });

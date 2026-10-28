@@ -17,7 +17,7 @@ const READY_CLASS = 'bt-opus-row-ready';
 const BT_ROOT_CLASS = 'bt-opus-row-bt';
 const TITLE_LINE_HEIGHT = 16.8;
 const TEXT_LINE_HEIGHT = 20;
-const STARTED_AT = Date.now();
+let startedAt = Date.now();
 
 const log = createLogger(SCOPE);
 
@@ -70,6 +70,8 @@ let btTimer = null;
 let btApplying = false;
 let btIgnoreUntil = 0;
 let btResizeBound = false;
+let running = false;
+let mainTimer = null;
 
 function exposeDebug() {
   window.BILI_TOOLS = window.BILI_TOOLS || {};
@@ -116,7 +118,7 @@ function findNativeSource() {
 function findTarget() {
   const opus = window.BILI_TOOLS && window.BILI_TOOLS.opus;
   const opusActive = Boolean(opus && opus.state && opus.state.active);
-  if (opus && !opusActive && Date.now() - STARTED_AT < 2500) {
+  if (opus && !opusActive && Date.now() - startedAt < 2500) {
     // 02 已安装但还在启动：先等它接管，避免 03 抢先隐藏原生网格
     return null;
   }
@@ -443,8 +445,24 @@ function detachBt() {
     btTimer = null;
   }
   if (btGrid) {
+    const items = btItems();
+    for (const item of items) {
+      item.style.removeProperty('height');
+      item.style.removeProperty('transform');
+      item.style.removeProperty('width');
+      const clamp = clampElement(item);
+      if (clamp) clamp.el.style.setProperty('-webkit-line-clamp', String(clamp.base));
+    }
     btGrid.classList.remove(BT_ROOT_CLASS);
     btGrid.removeEventListener('load', onBtLoad, true);
+    const opus = window.BILI_TOOLS && window.BILI_TOOLS.opus;
+    if (opus && typeof opus.refresh === 'function' && opus.active) {
+      try {
+        opus.refresh();
+      } catch {
+        /* ignore */
+      }
+    }
     btGrid = null;
   }
   if (btResizeBound) {
@@ -576,10 +594,13 @@ function attachSource(next) {
 }
 
 function start() {
+  if (running) return;
+  running = true;
+  startedAt = Date.now();
   addStyle(STYLE_ID, CSS);
   exposeDebug();
   log.info(`统一行高脚本 v${VERSION} 启动`);
-  setInterval(() => {
+  mainTimer = setInterval(() => {
     const next = findTarget();
     attachTarget(next);
     if (btGrid && btGrid.isConnected) {
@@ -595,12 +616,29 @@ function start() {
   attachTarget(findTarget());
 }
 
+function stop() {
+  if (!running) return;
+  running = false;
+  if (mainTimer) {
+    clearInterval(mainTimer);
+    mainTimer = null;
+  }
+  detachBt();
+  detachSource();
+  state.lastError = '';
+  log.info('统一行高脚本已停止');
+}
+
+export { start, stop, VERSION };
+
 const GLOBAL_KEY = '__biliToolsOpusRowLoaded__';
-const previous = window[GLOBAL_KEY];
-// 版本不同的旧实例（例如 0.1.0/0.2.x）可能先写了占位键；这里允许新版本继续运行
-if (!previous || previous.version !== VERSION) {
-  window[GLOBAL_KEY] = { version: VERSION, startedAt: Date.now() };
-  start();
-} else {
-  log.debug('统一行高脚本已注入，跳过重复初始化');
+if (!__BILI_TOOLS_COMBINED__) {
+  const previous = window[GLOBAL_KEY];
+  // 版本不同的旧实例（例如 0.1.0/0.2.x）可能先写了占位键；这里允许新版本继续运行
+  if (!previous || previous.version !== VERSION) {
+    window[GLOBAL_KEY] = { version: VERSION, startedAt: Date.now() };
+    start();
+  } else {
+    log.debug('统一行高脚本已注入，跳过重复初始化');
+  }
 }

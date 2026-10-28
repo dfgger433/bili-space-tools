@@ -8,8 +8,7 @@ import { startServer } from './server.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
-const SCRIPT = path.join(ROOT, 'dist', '02-图文翻页.user.js');
-const ROW_SCRIPT = path.join(ROOT, 'dist', '03-图文统一行高.user.js');
+const SCRIPT = path.join(ROOT, 'dist', 'B站空间页增强.user.js');
 const SHOTS = path.join(ROOT, 'test', 'screenshots');
 
 const CANDIDATES = [
@@ -34,7 +33,7 @@ async function findBrowser() {
 }
 
 async function openPage(browser, base, query = '', options = {}) {
-  const { withRow = false } = options;
+  const { withRow = false, override = true } = options;
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
   const errors = [];
@@ -79,8 +78,12 @@ async function openPage(browser, base, query = '', options = {}) {
     window.unsafeWindow = window;
   });
   // 用 addInitScript 模拟 document-start 注入（脚本需要提前装接口观察器）
+  if (override) {
+    await page.addInitScript((cfg) => {
+      window.__BILI_TOOLS_MODULES__ = cfg;
+    }, { dyn: false, opus: true, row: withRow });
+  }
   await page.addInitScript({ path: SCRIPT });
-  if (withRow) await page.addInitScript({ path: ROW_SCRIPT });
   await page.goto(`${base}/631063962/upload/opus${query}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.BILI_TOOLS?.opus?.active === true, null, { timeout: 25000 });
   await page.waitForTimeout(500);
@@ -281,6 +284,7 @@ async function runCompressionToggleTest(browser, base) {
   const firstImgSrc = () =>
     page.evaluate(() => document.querySelector('.bt-opus-item img')?.getAttribute('src') || '');
   const menuNames = () => page.evaluate(() => (window.__gmMenuCommands || []).map((item) => item.name));
+  const imageMenuNames = async () => (await menuNames()).filter((name) => name.startsWith('图片压缩'));
   const clickMenu = () =>
     page.evaluate(() => {
       const item = (window.__gmMenuCommands || []).find((cmd) => cmd.name.startsWith('图片压缩'));
@@ -290,7 +294,8 @@ async function runCompressionToggleTest(browser, base) {
 
   let src = await firstImgSrc();
   assert.match(src, /@640w\.webp$/, '默认应加载压缩图');
-  assert.deepEqual(await menuNames(), ['图片压缩：开'], '油猴菜单应显示“图片压缩：开”');
+  assert.deepEqual(await imageMenuNames(), ['图片压缩：开'], '油猴菜单应显示“图片压缩：开”');
+  assert.ok((await menuNames()).some((name) => name.startsWith('统一行高')), '单脚本应有统一行高开关');
   assert.equal((await opusState(page)).compressImages, true);
 
   // 通过配套菜单脚本关闭压缩
@@ -301,14 +306,14 @@ async function runCompressionToggleTest(browser, base) {
   await page.waitForTimeout(300);
   src = await firstImgSrc();
   assert.doesNotMatch(src, /@640w\.webp/, '关闭后应加载原图');
-  assert.deepEqual(await menuNames(), ['图片压缩：关'], '菜单文案应更新为关');
+  assert.deepEqual(await imageMenuNames(), ['图片压缩：关'], '菜单文案应更新为关');
   assert.equal((await opusState(page)).compressImages, false);
 
   // 刷新后保持关闭
   await page.reload({ waitUntil: 'load' });
   await page.waitForFunction(() => window.BILI_TOOLS?.opus?.active === true, null, { timeout: 25000 });
   await page.waitForTimeout(600);
-  assert.deepEqual(await menuNames(), ['图片压缩：关'], '刷新后菜单应保持关闭');
+  assert.deepEqual(await imageMenuNames(), ['图片压缩：关'], '刷新后菜单应保持关闭');
   src = await firstImgSrc();
   assert.doesNotMatch(src, /@640w\.webp/, '刷新后仍应加载原图');
 
@@ -320,7 +325,7 @@ async function runCompressionToggleTest(browser, base) {
   await page.waitForTimeout(300);
   src = await firstImgSrc();
   assert.match(src, /@640w\.webp$/, '重新开启后应加载压缩图');
-  assert.deepEqual(await menuNames(), ['图片压缩：开'], '菜单文案应更新为开');
+  assert.deepEqual(await imageMenuNames(), ['图片压缩：开'], '菜单文案应更新为开');
   assert.deepEqual(errors, [], '不应有未捕获异常');
   await context.close();
   console.log('油猴菜单图片压缩开关测试通过');
@@ -442,6 +447,79 @@ async function runUniformRowsTest(browser, base) {
   await context.close();
   console.log('统一行高测试通过');
 }
+async function runModuleToggleTest(browser, base) {
+  console.log('--- 单脚本：三个模块开关 ---');
+  const { context, page, errors } = await openPage(browser, base, '', { withRow: true });
+  const click = (prefix) =>
+    page.evaluate((prefix) => {
+      const cmd = (window.__gmMenuCommands || []).find((item) => item.name.startsWith(prefix));
+      if (!cmd) throw new Error(`未找到菜单：${prefix}`);
+      cmd.callback(new MouseEvent('click'));
+    }, prefix);
+  const names = () => page.evaluate(() => (window.__gmMenuCommands || []).map((item) => item.name));
+
+  // 关闭统一行高：02 网格恢复瀑布流（03 停止）
+  await click('统一行高');
+  await page.waitForFunction(() => window.BILI_TOOLS?.row?.state?.active === false, null, { timeout: 5000 });
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator('.bt-opus-row-bt').count(), 0, '关闭后不应再有 03 的行网格');
+  assert.ok((await names()).includes('统一行高：关'), '菜单应显示“统一行高：关”');
+
+  // 重新开启统一行高
+  await click('统一行高');
+  await page.waitForFunction(() => window.BILI_TOOLS?.row?.state?.mode === 'bt', null, { timeout: 8000 });
+
+  // 关闭图文翻页：02 停止；假页原生网格为空，03 会先停止（真实站点会切回原生克隆）
+  await click('图文翻页');
+  await page.waitForFunction(() => window.BILI_TOOLS?.opus?.state?.active === false, null, { timeout: 8000 });
+  await page.waitForFunction(() => window.BILI_TOOLS?.row?.state?.active === false, null, { timeout: 10000 });
+  assert.equal(await page.locator('.bt-opus-pager').count(), 0, '关闭 02 后分页条应消失');
+
+  // 重新开启图文翻页：03 切回 02 网格模式
+  await click('图文翻页');
+  await page.waitForFunction(() => window.BILI_TOOLS?.opus?.state?.active === true, null, { timeout: 20000 });
+  await page.waitForFunction(() => window.BILI_TOOLS?.row?.state?.mode === 'bt', null, { timeout: 10000 });
+
+  // 当前是图文页，动态模块只能改设置，不应在图文页启动
+  await click('动态翻页');
+  assert.ok((await names()).includes('动态翻页：开'), '菜单应显示“动态翻页：开”');
+  assert.equal(await page.evaluate(() => Boolean(window.BILI_TOOLS?.dyn?.state?.active)), false);
+  assert.equal(await page.evaluate(() => window.BILI_TOOLS?.all?.settings?.dyn), true);
+
+  assert.deepEqual(errors, [], '模块开关不应产生未捕获异常');
+  await context.close();
+  console.log('单脚本模块开关测试通过');
+}
+async function runModulePersistenceTest(browser, base) {
+  console.log('--- 单脚本：开关持久化 ---');
+  const { context, page, errors } = await openPage(browser, base, '', { withRow: true, override: false });
+  const click = (prefix) =>
+    page.evaluate((prefix) => {
+      const cmd = (window.__gmMenuCommands || []).find((item) => item.name.startsWith(prefix));
+      if (!cmd) throw new Error(`未找到菜单：${prefix}`);
+      cmd.callback(new MouseEvent('click'));
+    }, prefix);
+  const names = () => page.evaluate(() => (window.__gmMenuCommands || []).map((item) => item.name));
+
+  await page.waitForFunction(() => window.BILI_TOOLS?.row?.state?.mode === 'bt', null, { timeout: 10000 });
+  await click('统一行高');
+  await page.waitForFunction(() => window.BILI_TOOLS?.row?.state?.active === false, null, { timeout: 5000 });
+  assert.ok((await names()).includes('统一行高：关'));
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => window.BILI_TOOLS?.opus?.active === true, null, { timeout: 25000 });
+  await page.waitForTimeout(700);
+  assert.equal(await page.evaluate(() => window.BILI_TOOLS?.all?.settings?.row), false, '刷新后开关应保持关闭');
+  assert.equal(await page.evaluate(() => Boolean(window.BILI_TOOLS?.row?.state?.active)), false, '刷新后统一行高不应启动');
+  assert.equal(await page.locator('.bt-opus-row-bt').count(), 0);
+  assert.ok((await names()).includes('统一行高：关'));
+
+  await click('统一行高');
+  await page.waitForFunction(() => window.BILI_TOOLS?.row?.state?.mode === 'bt', null, { timeout: 10000 });
+  assert.deepEqual(errors, [], '开关持久化不应产生未捕获异常');
+  await context.close();
+  console.log('单脚本开关持久化测试通过');
+}
 async function main() {
   await mkdir(SHOTS, { recursive: true });
   const executablePath = await findBrowser();
@@ -454,6 +532,8 @@ async function main() {
     await runCompressionToggleTest(browser, server.url);
     await runVueBlockedTest(browser, server.url);
     await runUniformRowsTest(browser, server.url);
+    await runModuleToggleTest(browser, server.url);
+    await runModulePersistenceTest(browser, server.url);
   } finally {
     await browser.close();
     await server.close();
@@ -465,6 +545,10 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
+
+
+
 
 
 

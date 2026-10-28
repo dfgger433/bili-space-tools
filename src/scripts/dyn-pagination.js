@@ -8,6 +8,7 @@ import { observeNode, waitForElement, nextFrame } from '../shared/dom.js';
 import { addStyle } from '../shared/style.js';
 import { createPager } from '../shared/pager.js';
 import { toast } from '../shared/toast.js';
+import { pageDocument } from '../shared/page.js';
 
 const VERSION = '0.2.1';
 const SCOPE = 'dyn';
@@ -26,6 +27,9 @@ const LOAD_TIMEOUT = 20000;
 const API_PAGE_SIZE = 12; // 动态列表接口每页约 12 条，仅用于跳页前的请求次数估算
 
 const log = createLogger(SCOPE);
+let running = false;
+let mainTimer = null;
+let bootTimer = null;
 
 const state = {
   active: false,
@@ -71,6 +75,7 @@ function startStyle() {
 }
 
 function maybeBoot() {
+  if (!running) return;
   if (state.active || state.booting) return;
   if (Date.now() < state.nextBootAt) return;
   state.nextBootAt = Date.now() + 3000;
@@ -78,17 +83,20 @@ function maybeBoot() {
 }
 
 async function boot() {
+  if (!running) return;
   if (state.active || state.booting) return;
   if (!isDynamicRoute()) return;
   state.booting = true;
   try {
     startStyle();
     const listEl = await waitForElement(LIST_SELECTOR, { timeout: BOOT_TIMEOUT }).catch(() => null);
+    if (!running) return;
     if (!listEl) {
       log.info('未找到动态列表，稍后重试');
       return;
     }
     const ready = await waitForData(listEl, 15000);
+    if (!running) return;
     if (!ready) {
       log.info('动态列表为空（未登录 / 无内容），暂不启用');
       return;
@@ -113,16 +121,31 @@ async function waitForData(listEl, timeout) {
   }
 }
 
-/** 找到动态列表的 Vue 2 实例（.bili-dyn-list 的 __vue__） */
+/** 找到动态列表的 Vue 2 实例（.bili-dyn-list 的 __vue__；沙箱下通过 pageDocument 访问） */
 function getVm(listEl) {
-  if (!listEl) return null;
-  const candidates = [listEl, listEl.querySelector(ITEMS_SELECTOR), listEl.parentElement];
-  for (const el of candidates) {
-    if (el && el.__vue__ && Array.isArray(el.__vue__.list)) return el.__vue__;
+  let doc = document;
+  try {
+    doc = pageDocument() || document;
+  } catch {
+    /* ignore */
   }
-  let node = listEl;
+  const root = doc.querySelector(LIST_SELECTOR) || listEl;
+  if (!root) return null;
+  const read = (node) => {
+    if (!node) return null;
+    const el = node.wrappedJSObject || node;
+    const vm = el.__vue__;
+    return vm && Array.isArray(vm.list) ? vm : null;
+  };
+  const candidates = [root, root.querySelector(ITEMS_SELECTOR), root.parentElement];
+  for (const el of candidates) {
+    const vm = read(el);
+    if (vm) return vm;
+  }
+  let node = root;
   while (node) {
-    if (node.__vue__ && Array.isArray(node.__vue__.list)) return node.__vue__;
+    const vm = read(node);
+    if (vm) return vm;
     node = node.parentElement;
   }
   return null;
@@ -574,7 +597,8 @@ function watchRoute() {
     return;
   }
   if (!state.active && !state.booting) {
-    setTimeout(maybeBoot, changed ? 250 : 0);
+    if (bootTimer) clearTimeout(bootTimer);
+    bootTimer = setTimeout(maybeBoot, changed ? 250 : 0);
   }
 }
 
@@ -627,21 +651,48 @@ function exposeDebug() {
 // ---------------------------------------------------------------------------
 // 入口
 // ---------------------------------------------------------------------------
-function main() {
+function start() {
+  if (running) return;
+  running = true;
+  window[GLOBAL_KEY] = { version: VERSION, startedAt: Date.now() };
   startStyle();
   exposeDebug();
   window.addEventListener('popstate', watchRoute);
   window.addEventListener('hashchange', watchRoute);
-  setInterval(watchRoute, 500);
+  mainTimer = setInterval(watchRoute, 500);
   watchRoute();
 }
 
+function stop() {
+  if (!running) return;
+  running = false;
+  if (mainTimer) {
+    clearInterval(mainTimer);
+    mainTimer = null;
+  }
+  if (bootTimer) {
+    clearTimeout(bootTimer);
+    bootTimer = null;
+  }
+  window.removeEventListener('popstate', watchRoute);
+  window.removeEventListener('hashchange', watchRoute);
+  teardown();
+  state.booting = false;
+  state.nextBootAt = 0;
+  state.routeKey = '';
+  delete window[GLOBAL_KEY];
+  log.info('动态翻页脚本已停止');
+}
+
+export { start, stop, VERSION };
+
 const GLOBAL_KEY = '__biliToolsDynLoaded__';
-if (!window[GLOBAL_KEY]) {
-  window[GLOBAL_KEY] = { version: VERSION, startedAt: Date.now() };
-  main();
-} else {
-  // 已经注入过：保留原实例的调试入口，不要用当前空状态覆盖
-  log.debug('动态脚本已注入，跳过重复初始化');
+if (!__BILI_TOOLS_COMBINED__) {
+  if (!window[GLOBAL_KEY]) {
+    start();
+  } else {
+    // 已经注入过：保留原实例的调试入口，不要用当前空状态覆盖
+    log.debug('动态脚本已注入，跳过重复初始化');
+  }
 }
 

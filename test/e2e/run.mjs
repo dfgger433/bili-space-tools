@@ -9,7 +9,7 @@ import { startServer } from './server.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
-const SCRIPT = path.join(ROOT, 'dist', '01-动态翻页.user.js');
+const SCRIPT = path.join(ROOT, 'dist', 'B站空间页增强.user.js');
 const SHOTS = path.join(ROOT, 'test', 'screenshots');
 
 const CANDIDATES = [
@@ -36,6 +36,36 @@ async function findBrowser() {
 }
 
 async function inject(page) {
+  await page.evaluate(() => {
+    if (!window.__gmMenuCommands) {
+      const commands = [];
+      let nextId = 1;
+      window.__gmMenuCommands = commands;
+      window.GM_registerMenuCommand = (name, callback) => {
+        const existing = commands.find((item) => item.name === name);
+        if (existing) {
+          existing.callback = callback;
+          return existing.id;
+        }
+        const id = nextId;
+        nextId += 1;
+        commands.push({ id, name, callback });
+        return id;
+      };
+      window.GM_unregisterMenuCommand = (id) => {
+        const index = commands.findIndex((item) => item.id === id);
+        if (index >= 0) commands.splice(index, 1);
+      };
+      window.GM_getValue = (key, defaultValue) => {
+        const raw = localStorage.getItem(`__btgm__${key}`);
+        return raw === null ? defaultValue : raw;
+      };
+      window.GM_setValue = (key, value) => {
+        localStorage.setItem(`__btgm__${key}`, String(value));
+      };
+    }
+    window.__BILI_TOOLS_MODULES__ = { dyn: true, opus: false, row: false };
+  });
   await page.addScriptTag({ path: SCRIPT });
 }
 
@@ -248,6 +278,41 @@ async function runSmallListTest(browser, base) {
   console.log('少量数据测试通过');
 }
 
+async function runModuleToggleTest(browser, base) {
+  console.log('--- 单脚本：动态翻页开关 ---');
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on('pageerror', (err) => pageErrors.push(String(err)));
+  await page.goto(`${base}/440900637/dynamic?total=25`, { waitUntil: 'load' });
+  await inject(page);
+  await waitActive(page);
+  assert.equal(await page.locator('.bili-tools-dyn-pager').count(), 1);
+
+  const clickMenu = (prefix) =>
+    page.evaluate((prefix) => {
+      const cmd = (window.__gmMenuCommands || []).find((item) => item.name.startsWith(prefix));
+      if (!cmd) throw new Error(`未找到菜单：${prefix}`);
+      cmd.callback(new MouseEvent('click'));
+    }, prefix);
+  const menuNames = () => page.evaluate(() => (window.__gmMenuCommands || []).map((item) => item.name));
+
+  await clickMenu('动态翻页');
+  await page.waitForFunction(() => window.BILI_TOOLS?.dyn?.state?.active === false, null, { timeout: 5000 });
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('.bili-tools-dyn-pager').count(), 0, '关闭后分页条应消失');
+  assert.ok((await menuNames()).includes('动态翻页：关'));
+  assertRange(await visibleIndexes(page), 0, 11, '关闭后恢复已加载的原生列表');
+
+  await clickMenu('动态翻页');
+  await page.waitForFunction(() => window.BILI_TOOLS?.dyn?.state?.active === true, null, { timeout: 20000 });
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator('.bili-tools-dyn-pager').count(), 1, '重新开启后恢复分页条');
+  assertRange(await visibleIndexes(page), 0, 11, '重新开启后回到第 1 页');
+  assert.deepEqual(pageErrors, [], '开关不应产生未捕获异常');
+  await context.close();
+  console.log('动态翻页开关测试通过');
+}
 async function main() {
   await mkdir(SHOTS, { recursive: true });
   const executablePath = await findBrowser();
@@ -259,6 +324,7 @@ async function main() {
     await runVmRebuildTest(browser, server.url);
     await runDomTest(browser, server.url);
     await runSmallListTest(browser, server.url);
+    await runModuleToggleTest(browser, server.url);
   } finally {
     await browser.close();
     await server.close();
@@ -270,3 +336,6 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
+
+
