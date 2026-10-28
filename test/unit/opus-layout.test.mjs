@@ -15,6 +15,7 @@ import {
   computeColumnWidth,
   columnsForWidth,
   layoutRows,
+  layoutRowsWithClip,
   layoutWaterfall,
   slicePage,
   totalPages,
@@ -220,4 +221,78 @@ test('分页切片与总页数', () => {
   assert.deepEqual(slicePage(items, 4, 20), items.slice(60, 65));
   assert.equal(totalPages(65, 20), 4);
   assert.equal(totalPages(0, 20), 1);
+});
+
+test('行平均值裁剪：0 = 停用，行高取该行最高', () => {
+  const result = layoutRowsWithClip(
+    [100, 100, 100, 300].map((height) => ({ height })),
+    { columnWidth: 100, columns: 4, columnGutter: 10, rowGutter: 18, clipPercent: 0 },
+  );
+  assert.deepEqual(result.rowHeights, [300]);
+  assert.equal(result.positions[0].height, 300);
+  assert.equal(result.rowStats[0].clipped, false);
+});
+
+test('行平均值裁剪：最高超出平均 100% 时裁到平均值', () => {
+  const result = layoutRowsWithClip(
+    [100, 100, 100, 300].map((height) => ({ height })),
+    { columnWidth: 100, columns: 4, columnGutter: 10, rowGutter: 18, clipPercent: 27 },
+  );
+  assert.equal(result.rowStats[0].avg, 150);
+  assert.equal(result.rowStats[0].max, 300);
+  assert.ok(Math.abs(result.rowStats[0].excess - 100) < 1e-9);
+  assert.equal(result.rowStats[0].clipped, true);
+  assert.equal(result.rowHeights[0], 150);
+  assert.equal(result.positions[0].height, 150);
+  assert.equal(result.positions[3].height, 150);
+});
+
+test('行平均值裁剪：超出比例不超过 27% 时保留原始', () => {
+  const result = layoutRowsWithClip(
+    [100, 110, 120].map((height) => ({ height })),
+    { columnWidth: 100, columns: 3, columnGutter: 10, rowGutter: 18, clipPercent: 27 },
+  );
+  assert.ok(Math.abs(result.rowStats[0].avg - 110) < 1e-9);
+  assert.ok(Math.abs(result.rowStats[0].excess - (10 / 110) * 100) < 1e-9);
+  assert.equal(result.rowStats[0].clipped, false);
+  assert.equal(result.rowHeights[0], 120);
+});
+
+test('行平均值裁剪：阈值 27 与 26.7 的边界', () => {
+  const heights = [220, 260, 300, 340, 380];
+  // avg = 300, max = 380, excess = 26.666...
+  const at27 = layoutRowsWithClip(heights.map((height) => ({ height })), {
+    columnWidth: 100, columns: 5, clipPercent: 27,
+  });
+  assert.equal(at27.rowStats[0].clipped, false);
+  assert.equal(at27.rowHeights[0], 380);
+  const at26 = layoutRowsWithClip(heights.map((height) => ({ height })), {
+    columnWidth: 100, columns: 5, clipPercent: 26,
+  });
+  assert.equal(at26.rowStats[0].clipped, true);
+  assert.equal(at26.rowHeights[0], 300);
+});
+
+test('行平均值裁剪：逐行计算、裁剪后的行高决定下一行位置', () => {
+  const heights = [100, 100, 100, 300, 500, 500, 500, 500];
+  const result = layoutRowsWithClip(
+    heights.map((height) => ({ height })),
+    { columnWidth: 100, columns: 4, columnGutter: 10, rowGutter: 18, clipPercent: 27 },
+  );
+  assert.deepEqual(result.rowHeights, [150, 500]);
+  assert.deepEqual(result.rowStats.map((r) => r.clipped), [true, false]);
+  assert.equal(result.positions[4].top, 150 + 18);
+  assert.equal(result.height, 150 + 18 + 500);
+});
+
+test('行平均值裁剪：末行只按该行自己的卡片算平均', () => {
+  const heights = [100, 100, 100, 100, 100, 300];
+  const result = layoutRowsWithClip(
+    heights.map((height) => ({ height })),
+    { columnWidth: 100, columns: 4, columnGutter: 10, rowGutter: 18, clipPercent: 27 },
+  );
+  // 末行 [100, 300]：avg=200, excess=50% > 27% -> 裁剪到 200
+  assert.equal(result.rowStats[1].avg, 200);
+  assert.equal(result.rowStats[1].clipped, true);
+  assert.equal(result.rowHeights[1], 200);
 });

@@ -4,16 +4,20 @@
 // @name         B站图文统一行高（独立脚本）
 // @name:zh-CN   B站图文统一行高（独立脚本）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.3.0
-// @description  依赖“B站图文翻页”脚本的网格，只统一每行卡片高度并展开被省略的文字；不包含分页/菜单/预取。
-// @description:zh-CN 依赖“B站图文翻页”脚本的网格，只统一每行卡片高度并展开被省略的文字；不包含分页/菜单/预取。
+// @version      0.4.0
+// @description  统一所有已加载图文行高：每行自动计算平均高度，按可调的“超出比例阈值”（默认 27%，油猴菜单可设，0=停用）裁剪高于平均值的内容；不包含分页/预取。
+// @description:zh-CN 统一所有已加载图文行高：每行自动计算平均高度，按可调的“超出比例阈值”（默认 27%，油猴菜单可设，0=停用）裁剪高于平均值的内容；不包含分页/预取。
 // @author       bili-space-tools
 // @license      MIT
 // @icon         https://www.bilibili.com/favicon.ico
 // @match        *://*.bilibili.com/*/upload/opus
 // @match        *://*.bilibili.com/*/upload/opus/*
 // @run-at       document-idle
-// @grant        none
+// @grant        unsafeWindow
+// @grant        GM_registerMenuCommand
+// @grant        GM_unregisterMenuCommand
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @noframes
 // ==/UserScript==
 
@@ -23,23 +27,32 @@
   var DEFAULT_COLUMN_GUTTER = 20;
 
   // src/opus/layout.js
-  function layoutRows(items, {
+  function layoutRowsWithClip(items, {
     columnWidth,
     columns,
     rowGutter = DEFAULT_ROW_GUTTER,
-    columnGutter = DEFAULT_COLUMN_GUTTER
+    columnGutter = DEFAULT_COLUMN_GUTTER,
+    clipPercent: clipPercent2 = 0
   } = {}) {
     const list = items || [];
     const cw = Number(columnWidth) || 0;
     const m = Math.max(1, Math.floor(Number(columns) || 1));
+    const threshold = Number(clipPercent2) || 0;
     const positions = new Array(list.length);
     const rowHeights = [];
+    const rowStats = [];
     let top = 0;
     for (let start2 = 0; start2 < list.length; start2 += m) {
       const row = list.slice(start2, start2 + m);
       const rowIndex = rowHeights.length;
-      const rowHeight = row.reduce((max, item) => Math.max(max, Number(item && item.height) || 0), 0);
+      const heights = row.map((item) => Math.max(0, Number(item && item.height) || 0));
+      const avg = heights.length ? heights.reduce((sum, h) => sum + h, 0) / heights.length : 0;
+      const max = heights.length ? Math.max(...heights) : 0;
+      const excess = avg > 0 ? (max - avg) / avg * 100 : 0;
+      const clipped = threshold > 0 && excess > threshold;
+      const rowHeight = clipped ? Math.round(avg) : max;
       rowHeights.push(rowHeight);
+      rowStats.push({ avg, max, excess, rowHeight, clipped });
       row.forEach((item, column) => {
         positions[start2 + column] = {
           left: column * (cw + columnGutter),
@@ -53,6 +66,7 @@
     return {
       positions,
       rowHeights,
+      rowStats,
       width: m * cw + (m - 1) * columnGutter,
       height: Math.max(0, top - rowGutter)
     };
@@ -112,19 +126,99 @@
     return style;
   }
 
+  // src/shared/dom.js
+  function create(tag, options = {}) {
+    const el = document.createElement(tag);
+    if (options.className) el.className = options.className;
+    if (options.text != null) el.textContent = String(options.text);
+    if (options.html != null) el.innerHTML = options.html;
+    if (options.attrs) {
+      for (const [key, value] of Object.entries(options.attrs)) {
+        if (value == null || value === false) continue;
+        el.setAttribute(key, value === true ? "" : String(value));
+      }
+    }
+    if (options.style) {
+      for (const [key, value] of Object.entries(options.style)) {
+        if (value == null) continue;
+        el.style.setProperty(key, String(value));
+      }
+    }
+    if (options.children) {
+      for (const child of options.children) {
+        if (child) el.appendChild(child);
+      }
+    }
+    if (options.on) {
+      for (const [type, handler] of Object.entries(options.on)) {
+        el.addEventListener(type, handler);
+      }
+    }
+    return el;
+  }
+
+  // src/shared/toast.js
+  var STYLE_ID = "bili-tools-toast-style";
+  var CSS = `
+.bili-tools-toast-layer{position:fixed;top:76px;left:50%;transform:translateX(-50%);z-index:2147483000;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
+.bili-tools-toast{pointer-events:none;max-width:80vw;padding:9px 16px;border-radius:8px;font-size:14px;line-height:22px;
+  color:var(--text1,#18191c);background:var(--bg1,#fff);border:1px solid var(--line_regular,#e3e5e7);
+  box-shadow:0 4px 16px rgba(0,0,0,.12);opacity:0;transform:translateY(-6px);transition:opacity .18s ease,transform .18s ease}
+.bili-tools-toast.show{opacity:1;transform:translateY(0)}
+.bili-tools-toast--error{color:var(--stress_red,#f85a54)}
+.bili-tools-toast--progress{color:var(--brand_blue,#00aeec)}
+`;
+  function layer() {
+    let el = document.querySelector(".bili-tools-toast-layer");
+    if (!el) {
+      el = create("div", { className: "bili-tools-toast-layer" });
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  function toast(message, { type = "info", duration = 3200 } = {}) {
+    addStyle(STYLE_ID, CSS);
+    const root = layer();
+    const el = create("div", {
+      className: `bili-tools-toast bili-tools-toast--${type}`,
+      text: message
+    });
+    root.appendChild(el);
+    requestAnimationFrame(() => el.classList.add("show"));
+    let timer = null;
+    const close = () => {
+      if (timer) clearTimeout(timer);
+      el.classList.remove("show");
+      setTimeout(() => el.remove(), 220);
+    };
+    if (duration > 0) timer = setTimeout(close, duration);
+    return {
+      close,
+      setText(text) {
+        el.textContent = text;
+      },
+      setType(nextType) {
+        el.className = `bili-tools-toast bili-tools-toast--${nextType} show`;
+      }
+    };
+  }
+
   // src/scripts/opus-uniform-row.js
-  var VERSION = "0.3.0";
+  var VERSION = "0.4.0";
   var SCOPE = "opus-row";
-  var STYLE_ID = "bili-tools-opus-row-style";
+  var STYLE_ID2 = "bili-tools-opus-row-style";
   var HIDE_CLASS = "bt-opus-row-hidden";
   var WRAP_CLASS = "bt-opus-row-wrap";
   var GRID_CLASS = "bt-opus-row-grid";
   var ITEM_CLASS = "bt-opus-row-item";
   var READY_CLASS = "bt-opus-row-ready";
+  var SETTINGS_KEY = "biliTools:opusRow";
+  var LOCAL_KEY = "biliTools:opusRow:clipPercent";
+  var DEFAULT_CLIP_PERCENT = 27;
   var TITLE_LINE_HEIGHT = 16.8;
   var TEXT_LINE_HEIGHT = 20;
   var log = createLogger(SCOPE);
-  var CSS = `
+  var CSS2 = `
 .${HIDE_CLASS} .opus-feed{position:absolute!important;left:0;right:0;top:auto;height:0!important;overflow:hidden!important;visibility:hidden!important;pointer-events:none!important}
 .${WRAP_CLASS}{margin:0 auto;width:100%}
 .${GRID_CLASS}{position:relative;margin:0 auto}
@@ -143,9 +237,14 @@
     columns: 0,
     rows: 0,
     rowHeights: [],
+    rowStats: [],
+    clipPercent: DEFAULT_CLIP_PERCENT,
     lastError: "",
     lastApplyAt: 0
   };
+  var clipPercent = DEFAULT_CLIP_PERCENT;
+  var menuCommandId = null;
+  var menuCommandName = "";
   var masonry = null;
   var source = null;
   var hideHost = null;
@@ -164,8 +263,106 @@
     window.BILI_TOOLS.row = {
       version: VERSION,
       state,
-      apply: () => scheduleRebuild(0)
+      apply: () => scheduleRebuild(0),
+      setClipPercent: (value) => setClipPercent(value),
+      get clipPercent() {
+        return clipPercent;
+      }
     };
+  }
+  function pageWindow() {
+    try {
+      if (typeof unsafeWindow !== "undefined" && unsafeWindow) return unsafeWindow;
+    } catch {
+    }
+    return window;
+  }
+  function clampPercent(value) {
+    if (value === null || value === void 0) return null;
+    const text = String(value).trim();
+    if (text === "") return null;
+    const num = Number(text);
+    if (!Number.isFinite(num)) return null;
+    return Math.max(0, Math.min(100, Math.round(num)));
+  }
+  function loadClipPercent() {
+    let saved = null;
+    try {
+      if (typeof GM_getValue === "function") saved = GM_getValue(SETTINGS_KEY, DEFAULT_CLIP_PERCENT);
+    } catch {
+    }
+    if (saved === null || saved === void 0) {
+      try {
+        const raw = localStorage.getItem(LOCAL_KEY);
+        if (raw !== null) saved = raw;
+      } catch {
+      }
+    }
+    const value = clampPercent(saved);
+    return value === null ? DEFAULT_CLIP_PERCENT : value;
+  }
+  function saveClipPercent(value) {
+    try {
+      if (typeof GM_setValue === "function") GM_setValue(SETTINGS_KEY, value);
+    } catch {
+    }
+    try {
+      localStorage.setItem(LOCAL_KEY, String(value));
+    } catch {
+    }
+  }
+  function clipMenuName() {
+    return `行高裁剪阈值：${clipPercent}%（0=关闭）`;
+  }
+  function registerClipMenu() {
+    if (window.top !== window) return;
+    if (typeof GM_registerMenuCommand !== "function") return;
+    const name = clipMenuName();
+    if (menuCommandId !== null && name === menuCommandName) return;
+    try {
+      if (menuCommandId !== null && typeof GM_unregisterMenuCommand === "function") {
+        GM_unregisterMenuCommand(menuCommandId);
+      }
+    } catch {
+    }
+    menuCommandId = null;
+    try {
+      menuCommandId = GM_registerMenuCommand(name, openClipPrompt);
+      menuCommandName = name;
+    } catch {
+      menuCommandId = null;
+    }
+  }
+  function openClipPrompt() {
+    const W = pageWindow();
+    let raw = null;
+    try {
+      raw = (W.prompt || window.prompt).call(
+        W,
+        "设置行高裁剪阈值（0-100%，0 = 关闭裁剪）：",
+        String(clipPercent)
+      );
+    } catch {
+      return;
+    }
+    if (raw === null || raw === void 0 || String(raw).trim() === "") return;
+    const value = clampPercent(String(raw).trim());
+    if (value === null) {
+      toast("请输入 0-100 之间的数字", { duration: 1800 });
+      return;
+    }
+    setClipPercent(value);
+  }
+  function setClipPercent(value) {
+    const next = clampPercent(value);
+    if (next === null) return;
+    clipPercent = next;
+    state.clipPercent = next;
+    saveClipPercent(next);
+    registerClipMenu();
+    if (source) scheduleRebuild(0);
+    toast(`行高裁剪阈值：${next}%${next === 0 ? "（已关闭裁剪）" : ""}`, { duration: 1800 });
+    log.info("裁剪阈值已更新", { clipPercent: next });
   }
   function sourceItems() {
     if (!source) return [];
@@ -184,7 +381,8 @@
     return Array.from(container.querySelectorAll(".item"));
   }
   function findSource() {
-    const opus = window.BILI_TOOLS && window.BILI_TOOLS.opus;
+    const W = pageWindow();
+    const opus = W.BILI_TOOLS && W.BILI_TOOLS.opus || window.BILI_TOOLS && window.BILI_TOOLS.opus;
     if (opus && opus.state && opus.state.active) return null;
     const found = document.querySelector(".masonry_grid_v2");
     if (!found) return null;
@@ -299,13 +497,14 @@
         const card = clone.querySelector(".opus-card");
         return Math.round(card ? card.offsetHeight : clone.getBoundingClientRect().height);
       });
-      const result = layoutRows(
+      const result = layoutRowsWithClip(
         naturalHeights.map((height) => ({ height })),
         {
           columnWidth: info.columnWidth,
           columns: info.columns,
           rowGutter: DEFAULT_ROW_GUTTER,
-          columnGutter: DEFAULT_COLUMN_GUTTER
+          columnGutter: DEFAULT_COLUMN_GUTTER,
+          clipPercent
         }
       );
       grid.classList.add(READY_CLASS);
@@ -315,12 +514,8 @@
         const pos = result.positions[index];
         clone.style.height = `${pos.height}px`;
         clone.style.transform = `translate(${pos.left}px, ${pos.top}px)`;
-        const extra = Math.max(0, pos.height - naturalHeights[index]);
         const clamp = clampElement(clone);
-        if (clamp && extra > 0) {
-          const lines = clamp.base + Math.min(20, Math.floor(extra / clamp.lineHeight));
-          clamp.el.style.setProperty("-webkit-line-clamp", String(lines));
-        }
+        if (clamp) clamp.el.style.setProperty("-webkit-line-clamp", String(clamp.base));
       });
       state.active = true;
       state.mode = "native";
@@ -328,6 +523,8 @@
       state.columns = info.columns;
       state.rows = result.rowHeights.length;
       state.rowHeights = result.rowHeights;
+      state.rowStats = result.rowStats;
+      state.clipPercent = clipPercent;
       state.lastError = "";
       state.lastApplyAt = Date.now();
     } finally {
@@ -440,9 +637,12 @@
     scheduleRebuild(0);
   }
   function start() {
-    addStyle(STYLE_ID, CSS);
+    clipPercent = loadClipPercent();
+    state.clipPercent = clipPercent;
+    addStyle(STYLE_ID2, CSS2);
     exposeDebug();
-    log.info(`统一行高脚本 v${VERSION} 启动`);
+    registerClipMenu();
+    log.info(`统一行高脚本 v${VERSION} 启动`, { clipPercent });
     setInterval(() => {
       const next = findSource();
       attachSource(next);

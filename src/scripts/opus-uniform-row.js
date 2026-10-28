@@ -1,13 +1,13 @@
-// 独立脚本：统一“所有已加载”的图文行高（不依赖图文翻页脚本，不做分页/预取/菜单）。
-// 做法：把原生 WaterfallGrid 里所有已加载的 .item 卡片克隆到一个自己的网格里，按行等高重排；
-// 原生网格隐藏但继续负责自动加载，源数据每次变化（滚动加载、tab、翻译等）都会重新克隆/排版。
-// 这样不会和原生 WaterfallGrid 的绝对定位互相覆盖，滚动/自动加载后也能持续生效。
+// 独立脚本：统一所有已加载图文行高（不依赖图文翻页脚本）。
+// 每行自动计算平均高度；可调的“超出比例阈值”（油猴菜单设置，默认 27%，0=停用）：
+// 最高卡片超出平均值比例 > 阈值时，行高裁剪到平均值；否则保留原始内容。
 import { DEFAULT_COLUMN_GUTTER, DEFAULT_ROW_GUTTER } from '../opus/model.js';
-import { layoutRows } from '../opus/layout.js';
+import { layoutRowsWithClip } from '../opus/layout.js';
 import { createLogger } from '../shared/log.js';
 import { addStyle } from '../shared/style.js';
+import { toast } from '../shared/toast.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const SCOPE = 'opus-row';
 const STYLE_ID = 'bili-tools-opus-row-style';
 const HIDE_CLASS = 'bt-opus-row-hidden';
@@ -15,6 +15,9 @@ const WRAP_CLASS = 'bt-opus-row-wrap';
 const GRID_CLASS = 'bt-opus-row-grid';
 const ITEM_CLASS = 'bt-opus-row-item';
 const READY_CLASS = 'bt-opus-row-ready';
+const SETTINGS_KEY = 'biliTools:opusRow';
+const LOCAL_KEY = 'biliTools:opusRow:clipPercent';
+const DEFAULT_CLIP_PERCENT = 27;
 const TITLE_LINE_HEIGHT = 16.8;
 const TEXT_LINE_HEIGHT = 20;
 
@@ -40,9 +43,15 @@ const state = {
   columns: 0,
   rows: 0,
   rowHeights: [],
+  rowStats: [],
+  clipPercent: DEFAULT_CLIP_PERCENT,
   lastError: '',
   lastApplyAt: 0,
 };
+
+let clipPercent = DEFAULT_CLIP_PERCENT;
+let menuCommandId = null;
+let menuCommandName = '';
 
 let masonry = null;
 let source = null;
@@ -64,7 +73,119 @@ function exposeDebug() {
     version: VERSION,
     state,
     apply: () => scheduleRebuild(0),
+    setClipPercent: (value) => setClipPercent(value),
+    get clipPercent() {
+      return clipPercent;
+    },
   };
+}
+
+function pageWindow() {
+  try {
+    if (typeof unsafeWindow !== 'undefined' && unsafeWindow) return unsafeWindow;
+  } catch {
+    /* ignore */
+  }
+  return window;
+}
+
+function clampPercent(value) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  if (text === '') return null;
+  const num = Number(text);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.min(100, Math.round(num)));
+}
+
+function loadClipPercent() {
+  let saved = null;
+  try {
+    if (typeof GM_getValue === 'function') saved = GM_getValue(SETTINGS_KEY, DEFAULT_CLIP_PERCENT);
+  } catch {
+    /* ignore */
+  }
+  if (saved === null || saved === undefined) {
+    try {
+      const raw = localStorage.getItem(LOCAL_KEY);
+      if (raw !== null) saved = raw;
+    } catch {
+      /* ignore */
+    }
+  }
+  const value = clampPercent(saved);
+  return value === null ? DEFAULT_CLIP_PERCENT : value;
+}
+
+function saveClipPercent(value) {
+  try {
+    if (typeof GM_setValue === 'function') GM_setValue(SETTINGS_KEY, value);
+  } catch {
+    /* ignore */
+  }
+  try {
+    localStorage.setItem(LOCAL_KEY, String(value));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clipMenuName() {
+  return `行高裁剪阈值：${clipPercent}%（0=关闭）`;
+}
+
+function registerClipMenu() {
+  if (window.top !== window) return;
+  if (typeof GM_registerMenuCommand !== 'function') return;
+  const name = clipMenuName();
+  if (menuCommandId !== null && name === menuCommandName) return;
+  try {
+    if (menuCommandId !== null && typeof GM_unregisterMenuCommand === 'function') {
+      GM_unregisterMenuCommand(menuCommandId);
+    }
+  } catch {
+    /* ignore */
+  }
+  menuCommandId = null;
+  try {
+    menuCommandId = GM_registerMenuCommand(name, openClipPrompt);
+    menuCommandName = name;
+  } catch {
+    menuCommandId = null;
+  }
+}
+
+function openClipPrompt() {
+  const W = pageWindow();
+  let raw = null;
+  try {
+    raw = (W.prompt || window.prompt).call(
+      W,
+      '设置行高裁剪阈值（0-100%，0 = 关闭裁剪）：',
+      String(clipPercent),
+    );
+  } catch {
+    return;
+  }
+  if (raw === null || raw === undefined || String(raw).trim() === '') return;
+  const value = clampPercent(String(raw).trim());
+  if (value === null) {
+    toast('请输入 0-100 之间的数字', { duration: 1800 });
+    return;
+  }
+  setClipPercent(value);
+}
+
+function setClipPercent(value) {
+  const next = clampPercent(value);
+  if (next === null) return;
+  clipPercent = next;
+  state.clipPercent = next;
+  saveClipPercent(next);
+  registerClipMenu();
+  if (source) scheduleRebuild(0);
+  toast(`行高裁剪阈值：${next}%${next === 0 ? '（已关闭裁剪）' : ''}`, { duration: 1800 });
+  log.info('裁剪阈值已更新', { clipPercent: next });
 }
 
 function sourceItems() {
@@ -87,7 +208,8 @@ function sourceItemsOf(container) {
 
 function findSource() {
   // 02 正在接管时让位，避免两个网格互相打架；阶段 3 应当单独启用 03。
-  const opus = window.BILI_TOOLS && window.BILI_TOOLS.opus;
+  const W = pageWindow();
+  const opus = (W.BILI_TOOLS && W.BILI_TOOLS.opus) || (window.BILI_TOOLS && window.BILI_TOOLS.opus);
   if (opus && opus.state && opus.state.active) return null;
   const found = document.querySelector('.masonry_grid_v2');
   if (!found) return null;
@@ -224,13 +346,14 @@ function layout() {
       const card = clone.querySelector('.opus-card');
       return Math.round(card ? card.offsetHeight : clone.getBoundingClientRect().height);
     });
-    const result = layoutRows(
+    const result = layoutRowsWithClip(
       naturalHeights.map((height) => ({ height })),
       {
         columnWidth: info.columnWidth,
         columns: info.columns,
         rowGutter: DEFAULT_ROW_GUTTER,
         columnGutter: DEFAULT_COLUMN_GUTTER,
+        clipPercent,
       },
     );
     grid.classList.add(READY_CLASS);
@@ -240,12 +363,9 @@ function layout() {
       const pos = result.positions[index];
       clone.style.height = `${pos.height}px`;
       clone.style.transform = `translate(${pos.left}px, ${pos.top}px)`;
-      const extra = Math.max(0, pos.height - naturalHeights[index]);
+      // 新算法：不再强行展开文字；差距大时只裁掉卡片底部高于平均值的内容
       const clamp = clampElement(clone);
-      if (clamp && extra > 0) {
-        const lines = clamp.base + Math.min(20, Math.floor(extra / clamp.lineHeight));
-        clamp.el.style.setProperty('-webkit-line-clamp', String(lines));
-      }
+      if (clamp) clamp.el.style.setProperty('-webkit-line-clamp', String(clamp.base));
     });
     state.active = true;
     state.mode = 'native';
@@ -253,6 +373,8 @@ function layout() {
     state.columns = info.columns;
     state.rows = result.rowHeights.length;
     state.rowHeights = result.rowHeights;
+    state.rowStats = result.rowStats;
+    state.clipPercent = clipPercent;
     state.lastError = '';
     state.lastApplyAt = Date.now();
   } finally {
@@ -376,9 +498,12 @@ function attachSource(next) {
 }
 
 function start() {
+  clipPercent = loadClipPercent();
+  state.clipPercent = clipPercent;
   addStyle(STYLE_ID, CSS);
   exposeDebug();
-  log.info(`统一行高脚本 v${VERSION} 启动`);
+  registerClipMenu();
+  log.info(`统一行高脚本 v${VERSION} 启动`, { clipPercent });
   setInterval(() => {
     const next = findSource();
     attachSource(next);
