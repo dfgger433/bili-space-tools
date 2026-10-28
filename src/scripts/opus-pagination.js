@@ -23,7 +23,7 @@ import {
   findWaterfall,
 } from '../opus/adapter.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const SCOPE = 'opus';
 const STYLE_ID = 'bili-tools-opus-style';
 const ACTIVE_CLASS = 'bili-tools-opus-active';
@@ -309,8 +309,25 @@ function refresh(force = false) {
   }
 
   ensurePager();
-  if (loaded > 0) maybeRender(force);
+  if (loaded > 0) {
+    maybeRender(force);
+    // 预热下两页的封面缩略图：翻页时直接命中浏览器缓存，避免整页灰块
+    const preloadStart = state.page * PAGE_SIZE;
+    preloadCovers(state.items.slice(preloadStart, preloadStart + PAGE_SIZE * 2));
+  }
   updatePager();
+}
+
+const preloadedCovers = new Set();
+function preloadCovers(items) {
+  for (const item of items) {
+    const src = item.cover && item.cover.src;
+    if (!src || preloadedCovers.has(src)) continue;
+    preloadedCovers.add(src);
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = src;
+  }
 }
 
 function currentSlice() {
@@ -654,3 +671,4 @@ if (!window[GLOBAL_KEY]) {
   // 已经注入过：保留原实例的调试入口，不要用当前空状态覆盖
   log.debug('opus 脚本已注入，跳过重复初始化');
 }
+

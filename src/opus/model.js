@@ -4,6 +4,7 @@ export const PAGE_SIZE = 20; // 与 B 站图文自动加载批次一致（2026-1
 export const DEFAULT_ROW_GUTTER = 18;
 export const DEFAULT_COLUMN_GUTTER = 20;
 export const THRESHOLD_OF_WATERFALL = 10;
+export const COVER_THUMB_WIDTH = 640;
 
 export function normalizeUrl(url) {
   if (!url) return '';
@@ -12,6 +13,18 @@ export function normalizeUrl(url) {
   // B 站接口常返回 http://i0.hdslb.com/...，HTTPS 页面里会被混合内容拦截，统一升级
   if (value.startsWith('http://')) return `https://${value.slice(7)}`;
   return value;
+}
+
+/**
+ * 封面缩略图：B 站图床支持 @640w.webp 这类参数，能把 300KB 原图压到 ~25KB。
+ * 分页翻页时直接加载原图会让封面灰块停留很久，这里统一换成按宽度压缩的 webp。
+ */
+export function coverThumbUrl(url, width = COVER_THUMB_WIDTH) {
+  const value = normalizeUrl(url);
+  if (!value || !/^https?:\/\//i.test(value)) return value;
+  if (value.includes('@')) return value;
+  const w = Math.max(160, Math.round(Number(width) || COVER_THUMB_WIDTH));
+  return `${value}@${w}w.webp`;
 }
 
 export function normalizeHref(url) {
@@ -53,7 +66,7 @@ export function toItem(view, index, columnWidth) {
   const cover =
     view && view.cover
       ? {
-          src: normalizeUrl(view.cover.url),
+          src: coverThumbUrl(view.cover.url),
           width: Math.ceil(columnWidth),
           height: Math.ceil(natural.coverHeight),
           naturalWidth: Number(view.cover.width) || 0,
@@ -78,7 +91,7 @@ export function fromInstanceItem(item, fallbackIndex) {
   let cover = null;
   if (cached && cached.src) {
     cover = {
-      src: normalizeUrl(cached.src),
+      src: coverThumbUrl(cached.src),
       width: Number(cached.width) || Number(item && item.width) || 0,
       height: Number(cached.height) || 0,
       naturalWidth: Number(view.cover && view.cover.width) || 0,
@@ -88,7 +101,7 @@ export function fromInstanceItem(item, fallbackIndex) {
     const width = Number(item && item.width) || 0;
     const natural = computeNaturalSize(view, width || 190);
     cover = {
-      src: normalizeUrl(view.cover.url),
+      src: coverThumbUrl(view.cover.url),
       width: Math.ceil(width || natural.coverHeight),
       height: Math.ceil(natural.coverHeight),
       naturalWidth: Number(view.cover.width) || 0,

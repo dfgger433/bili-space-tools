@@ -4,7 +4,7 @@
 // @name         B站图文翻页（每页20条）
 // @name:zh-CN   B站图文翻页（每页20条）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.1.0
+// @version      0.1.1
 // @description  把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式。
 // @description:zh-CN 把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式。
 // @author       bili-space-tools
@@ -483,12 +483,20 @@
   var DEFAULT_ROW_GUTTER = 18;
   var DEFAULT_COLUMN_GUTTER = 20;
   var THRESHOLD_OF_WATERFALL = 10;
+  var COVER_THUMB_WIDTH = 640;
   function normalizeUrl(url) {
     if (!url) return "";
     const value = String(url);
     if (value.startsWith("//")) return `https:${value}`;
     if (value.startsWith("http://")) return `https://${value.slice(7)}`;
     return value;
+  }
+  function coverThumbUrl(url, width = COVER_THUMB_WIDTH) {
+    const value = normalizeUrl(url);
+    if (!value || !/^https?:\/\//i.test(value)) return value;
+    if (value.includes("@")) return value;
+    const w = Math.max(160, Math.round(Number(width) || COVER_THUMB_WIDTH));
+    return `${value}@${w}w.webp`;
   }
   function normalizeHref(url) {
     return normalizeUrl(url) || "javascript:void(0)";
@@ -518,7 +526,7 @@
   function toItem(view, index, columnWidth) {
     const natural = computeNaturalSize(view, columnWidth);
     const cover = view && view.cover ? {
-      src: normalizeUrl(view.cover.url),
+      src: coverThumbUrl(view.cover.url),
       width: Math.ceil(columnWidth),
       height: Math.ceil(natural.coverHeight),
       naturalWidth: Number(view.cover.width) || 0,
@@ -540,7 +548,7 @@
     let cover = null;
     if (cached && cached.src) {
       cover = {
-        src: normalizeUrl(cached.src),
+        src: coverThumbUrl(cached.src),
         width: Number(cached.width) || Number(item && item.width) || 0,
         height: Number(cached.height) || 0,
         naturalWidth: Number(view.cover && view.cover.width) || 0,
@@ -550,7 +558,7 @@
       const width = Number(item && item.width) || 0;
       const natural = computeNaturalSize(view, width || 190);
       cover = {
-        src: normalizeUrl(view.cover.url),
+        src: coverThumbUrl(view.cover.url),
         width: Math.ceil(width || natural.coverHeight),
         height: Math.ceil(natural.coverHeight),
         naturalWidth: Number(view.cover.width) || 0,
@@ -714,7 +722,6 @@
         attrs: {
           src: cover.src,
           alt: title.slice(0, 80),
-          loading: "lazy",
           decoding: "async"
         }
       })
@@ -1017,7 +1024,7 @@
   }
 
   // src/scripts/opus-pagination.js
-  var VERSION = "0.1.0";
+  var VERSION = "0.1.1";
   var SCOPE = "opus";
   var STYLE_ID2 = "bili-tools-opus-style";
   var ACTIVE_CLASS = "bili-tools-opus-active";
@@ -1272,8 +1279,23 @@
       if (state.page > last) state.page = last;
     }
     ensurePager();
-    if (loaded > 0) maybeRender(force);
+    if (loaded > 0) {
+      maybeRender(force);
+      const preloadStart = state.page * PAGE_SIZE;
+      preloadCovers(state.items.slice(preloadStart, preloadStart + PAGE_SIZE * 2));
+    }
     updatePager();
+  }
+  var preloadedCovers = /* @__PURE__ */ new Set();
+  function preloadCovers(items) {
+    for (const item of items) {
+      const src = item.cover && item.cover.src;
+      if (!src || preloadedCovers.has(src)) continue;
+      preloadedCovers.add(src);
+      const img = new Image();
+      img.decoding = "async";
+      img.src = src;
+    }
   }
   function currentSlice() {
     let page = state.page;

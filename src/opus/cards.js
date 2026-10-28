@@ -71,7 +71,6 @@ function buildCoverCard(item) {
       attrs: {
         src: cover.src,
         alt: title.slice(0, 80),
-        loading: 'lazy',
         decoding: 'async',
       },
     }),
