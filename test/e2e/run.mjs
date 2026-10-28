@@ -170,6 +170,34 @@ async function runDomTest(browser, base) {
   console.log('纯 DOM 回退模式测试通过');
 }
 
+async function runSmallListTest(browser, base) {
+  console.log('--- 少量数据（不足一页 / 恰好一页）测试 ---');
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  await page.goto(`${base}/440900637/dynamic?total=5`, { waitUntil: 'load' });
+  await inject(page);
+  await waitActive(page);
+  assertRange(await visibleIndexes(page), 0, 4, '总量 5 条时全部显示');
+  let st = await debugState(page);
+  assert.equal(st.totalPages, 1, '总量 5 条应为 1 页');
+  assert.equal(
+    await page.locator('.bili-tools-dyn-pager .vui_pagenation--btn-side[aria-label="下一页"]').isVisible(),
+    false,
+    '只有一页时下一页应隐藏',
+  );
+  await page.goto(`${base}/440900637/dynamic?total=12`, { waitUntil: 'load' });
+  await inject(page);
+  await waitActive(page);
+  assertRange(await visibleIndexes(page), 0, 9, '12 条时第 1 页显示 10 条');
+  await page.locator('.bili-tools-dyn-pager .vui_pagenation--btn-num', { hasText: /^2$/ }).click();
+  await waitPage(page, 2);
+  assertRange(await visibleIndexes(page), 10, 11, '12 条时第 2 页显示剩下 2 条');
+  st = await debugState(page);
+  assert.equal(st.totalPages, 2);
+  await context.close();
+  console.log('少量数据测试通过');
+}
+
 async function main() {
   await mkdir(SHOTS, { recursive: true });
   const executablePath = await findBrowser();
@@ -180,6 +208,7 @@ async function main() {
     await runVmTest(browser, server.url);
     await runVmRebuildTest(browser, server.url);
     await runDomTest(browser, server.url);
+    await runSmallListTest(browser, server.url);
   } finally {
     await browser.close();
     await server.close();
