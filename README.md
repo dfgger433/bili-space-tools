@@ -1,0 +1,59 @@
+# B站空间页增强工具（userscripts）
+
+按阶段交付的 Tampermonkey 脚本，用来改进 B 站用户空间页：
+
+| 阶段 | 脚本 | 页面 | 功能 | 状态 |
+|---|---|---|---|---|
+| 1 | `dist/01-动态翻页.user.js` | `/uid/dynamic` | 动态翻页，每页 10 条 | ✅ 已交付，待实测 |
+| 2 | `dist/02-图文翻页.user.js` | `/uid/upload/opus` | 图文翻页，每页 42 条 | 待实现 |
+| 3 | `dist/03-图文统一行高.user.js` | `/uid/upload/opus` | 同一行卡片等高（该行最高为准） | 待实现 |
+| 4 | `dist/04-图文排序.user.js` | `/uid/upload/opus` | 左→右、上→下 按日期从新到旧 | 待实现 |
+| 5 | 待定 | — | 翻译按钮（B 站原生按钮样式） | 需求待确认 |
+
+## 安装（Tampermonkey）
+
+1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展。
+2. 打开 Tampermonkey 管理面板 → **实用工具** → **导入文件**，选择 `dist/` 下对应的 `.user.js`；
+   或者直接把 `.user.js` 拖进浏览器窗口，按提示安装。
+3. 打开 B 站空间页，例如 `https://space.bilibili.com/440900637/dynamic`。
+
+> 阶段之间请只启用最新阶段的脚本（安装新脚本后禁用/删除旧脚本），避免重复接管。脚本本身做了重复注入保护。
+
+## 阶段 1 已实现
+
+- 动态页每页只显示 10 条，其余条目隐藏（数据仍由 B 站自身按需加载，不额外发请求）。
+- 分页条 1:1 复刻 B 站原生 `VPagenation` 的 DOM/class/尺寸（上一页 / 页码 / 更多 / 下一页 / 跳页），
+  跟随亮色/暗色主题。
+- 支持：上一页、下一页、页码跳转、输入页码跳转；跳页需要时会顺序加载并显示进度；
+  总页数未知前显示“第 X 页 · 已加载 N 个”，加载到最后一页后显示总页数。
+- 切换 全部/视频 tab、刷新、SPA 切换 UP 主都会回到第 1 页。
+- 若取不到列表实例，自动退化为纯 DOM 模式（滚到底触发原生加载）。
+
+调试：
+
+```js
+window.BILI_TOOLS.dyn.state          // 当前状态
+window.BILI_TOOLS.dyn.goTo(5)       // 跳到第 5 页
+window.BILI_TOOLS.dyn.next()        // 下一页
+localStorage.setItem('biliTools:debug', '1')  // 刷新后输出详细日志
+```
+
+## 开发
+
+```powershell
+npm install
+npm test              # 单元测试（分页窗口计算）
+npm run test:e2e      # 假动态页端到端测试（本机 Chrome）
+npm run test:visual   # 分页控件与原生参考的尺寸/视觉对比
+npm run build         # 生成 dist/*.user.js
+```
+
+- 源码在 `src/`，esbuild 打包成单文件 userscript（不压缩，保留可读性）。
+- `参考文件/` 是本地保存的 B 站页面快照（只读资料，约 50MB），已在 `.gitignore` 中排除。
+- 文档：[计划](docs/PLAN.md) · [调研](docs/RESEARCH.md) · [任务清单](docs/TASKS.md) · [测试说明](docs/TESTING.md)
+
+## 已知限制
+
+- 需要登录态的真实页面无法在本机自动化测试，脚本行为以假页测试 + 用户实测为准。
+- 跳页是本地分页：要跳很远会顺序加载中间所有页（脚本会提示请求次数）。
+- 隐藏的超额条目仍由 B 站按原有滚动逻辑预取，可能看到“已加载 N 个”比当前页多，这是正常的。

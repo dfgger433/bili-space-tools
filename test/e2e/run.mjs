@@ -1,0 +1,193 @@
+// 阶段 1 浏览器端 e2e：用本机 Chrome/Edge 打开假动态页，注入构建后的 userscript，验证分页行为。
+import { chromium } from 'playwright-core';
+import assert from 'node:assert/strict';
+import { access, mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { startServer } from './server.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(HERE, '../..');
+const SCRIPT = path.join(ROOT, 'dist', '01-动态翻页.user.js');
+const SHOTS = path.join(ROOT, 'test', 'screenshots');
+
+const CANDIDATES = [
+  process.env.BILI_TEST_BROWSER,
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+  'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+  '/usr/bin/google-chrome',
+  '/usr/bin/chromium',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+].filter(Boolean);
+
+async function findBrowser() {
+  for (const candidate of CANDIDATES) {
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {
+      /* try next */
+    }
+  }
+  throw new Error('未找到 Chrome/Edge，可用 BILI_TEST_BROWSER 指定可执行文件路径');
+}
+
+async function inject(page) {
+  await page.addScriptTag({ path: SCRIPT });
+}
+
+async function waitActive(page) {
+  await page.waitForFunction(() => window.BILI_TOOLS?.dyn?.active === true, null, { timeout: 20000 });
+  // 等一轮 debounce/observer
+  await page.waitForTimeout(300);
+}
+
+async function visibleIndexes(page) {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('.bili-dyn-list__item'))
+      .filter((el) => getComputedStyle(el).display !== 'none')
+      .map((el) => Number(el.dataset.idx)),
+  );
+}
+
+async function totalCount(page) {
+  return page.evaluate(() => document.querySelectorAll('.bili-dyn-list__item').length);
+}
+
+async function debugState(page) {
+  return page.evaluate(() => window.BILI_TOOLS?.dyn?.state);
+}
+
+async function waitPage(page, expected) {
+  await page.waitForFunction((n) => window.BILI_TOOLS?.dyn?.page === n, expected, { timeout: 25000 });
+  await page.waitForTimeout(200);
+}
+
+function assertRange(actual, from, to, label) {
+  const expected = [];
+  for (let i = from; i <= to; i += 1) expected.push(i);
+  assert.deepEqual(actual, expected, `${label}: 可见条目应为 ${from}..${to}`);
+}
+
+async function runVmTest(browser, base) {
+  console.log('--- VM 模式测试 ---');
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on('pageerror', (err) => pageErrors.push(String(err)));
+  await page.goto(`${base}/440900637/dynamic?total=25`, { waitUntil: 'load' });
+  await inject(page);
+  await waitActive(page);
+
+  let st = await debugState(page);
+  assert.equal(st.adapter, 'vm', '应走 VM 通道');
+  assert.equal(st.page, 1);
+  assert.equal(await totalCount(page), 12, '初始已加载 12 条');
+  assertRange(await visibleIndexes(page), 0, 9, '第 1 页');
+
+  const pager = page.locator('.bili-tools-dyn-pager');
+  assert.equal(await pager.count(), 1, '应只有一个分页条');
+  const countText = await page.locator('.bili-tools-dyn-pager .vui_pagenation-go__count').innerText();
+  assert.match(countText, /第 1 页/);
+  assert.match(countText, /已加载 12 个/);
+
+  await page.locator('.bili-tools-dyn-pager .vui_pagenation--btn-side[aria-label="下一页"]').click();
+  await waitPage(page, 2);
+  assertRange(await visibleIndexes(page), 10, 19, '第 2 页');
+  st = await debugState(page);
+  assert.equal(st.loaded, 24, '第 2 页应触发一次加载（12 → 24）');
+  await page.screenshot({ path: path.join(SHOTS, 'dyn-vm-page2.png'), fullPage: true });
+
+  await page.locator('.bili-tools-dyn-pager .vui_pagenation--btn-side[aria-label="下一页"]').click();
+  await waitPage(page, 3);
+  assertRange(await visibleIndexes(page), 20, 24, '第 3 页（末页）');
+  st = await debugState(page);
+  assert.equal(st.totalPages, 3, '末页总页数应为 3');
+  assert.equal(st.loaded, 25);
+  const nextVisible = await page
+    .locator('.bili-tools-dyn-pager .vui_pagenation--btn-side[aria-label="下一页"]')
+    .isVisible();
+  assert.equal(nextVisible, false, '末页“下一页”应隐藏');
+
+  // 跳页输入
+  const input = page.locator('.bili-tools-dyn-pager .vui_pagenation-go input');
+  await input.fill('2');
+  await input.press('Enter');
+  await waitPage(page, 2);
+  assertRange(await visibleIndexes(page), 10, 19, '跳转到第 2 页');
+
+  // 重复注入：不应出现第二个分页条
+  await inject(page);
+  await page.waitForTimeout(300);
+  assert.equal(await pager.count(), 1, '重复注入后仍应只有一个分页条');
+
+  // 模拟切 tab：列表重置 → 回到第 1 页
+  await page.evaluate(() => window.__fakeReset());
+  await page.waitForFunction(() => window.BILI_TOOLS?.dyn?.page === 1, null, { timeout: 10000 });
+  await page.waitForTimeout(300);
+  assertRange(await visibleIndexes(page), 0, 9, '列表重置后回到第 1 页');
+
+  assert.deepEqual(pageErrors, [], '不应有未捕获的页面异常');
+  await context.close();
+  console.log('VM 模式测试通过');
+}
+
+async function runVmRebuildTest(browser, base) {
+  console.log('--- VM 模式（整列表重绘）测试 ---');
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  await page.goto(`${base}/440900637/dynamic?total=25&rebuild=1`, { waitUntil: 'load' });
+  await inject(page);
+  await waitActive(page);
+  assertRange(await visibleIndexes(page), 0, 9, '第 1 页');
+  await page.locator('.bili-tools-dyn-pager .vui_pagenation--btn-side[aria-label="下一页"]').click();
+  await waitPage(page, 2);
+  assertRange(await visibleIndexes(page), 10, 19, '整列表重绘后仍应正确隐藏');
+  await context.close();
+  console.log('整列表重绘测试通过');
+}
+
+async function runDomTest(browser, base) {
+  console.log('--- 纯 DOM 回退模式测试 ---');
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on('pageerror', (err) => pageErrors.push(String(err)));
+  await page.goto(`${base}/440900637/dynamic?total=25&nomv=1`, { waitUntil: 'load' });
+  await inject(page);
+  await waitActive(page);
+  let st = await debugState(page);
+  assert.equal(st.adapter, 'dom', '没有 __vue__ 时应退化为 DOM 模式');
+  assertRange(await visibleIndexes(page), 0, 9, '第 1 页');
+  await page.locator('.bili-tools-dyn-pager .vui_pagenation--btn-side[aria-label="下一页"]').click();
+  await waitPage(page, 2);
+  assertRange(await visibleIndexes(page), 10, 19, 'DOM 模式第 2 页');
+  await page.screenshot({ path: path.join(SHOTS, 'dyn-dom-page2.png'), fullPage: true });
+  assert.deepEqual(pageErrors, [], '不应有未捕获的页面异常');
+  await context.close();
+  console.log('纯 DOM 回退模式测试通过');
+}
+
+async function main() {
+  await mkdir(SHOTS, { recursive: true });
+  const executablePath = await findBrowser();
+  console.log('浏览器:', executablePath);
+  const server = await startServer();
+  const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox'] });
+  try {
+    await runVmTest(browser, server.url);
+    await runVmRebuildTest(browser, server.url);
+    await runDomTest(browser, server.url);
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+  console.log('全部 e2e 通过');
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

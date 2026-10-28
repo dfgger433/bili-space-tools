@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>动态翻页测试页</title>
+<link rel="stylesheet" href="/参考文件/arooka_阿若卡个人动态-arooka_阿若卡动态记录-哔哩哔哩视频_files/light_CsuI.css">
+<link rel="stylesheet" href="/参考文件/arooka_阿若卡个人动态-arooka_阿若卡动态记录-哔哩哔哩视频_files/map_CsuI.css">
+<link rel="stylesheet" href="/参考文件/arooka_阿若卡个人动态-arooka_阿若卡动态记录-哔哩哔哩视频_files/index-7f7ca3ba_CsuI.css">
+<style>
+  html, body { margin: 0; padding: 0; background: var(--bg2, #f6f7f8); }
+  body { font-family: "Microsoft YaHei", Arial, sans-serif; color: var(--text1, #18191c); }
+  .fake-nav { height: 50px; background: var(--bg1, #fff); border-bottom: 1px solid var(--line_regular, #e3e5e7); position: sticky; top: 0; z-index: 10; }
+  .space-dynamic { max-width: 860px; margin: 20px auto 80px; padding: 0 16px; }
+  .space-dynamic-inner .content { display: block; }
+  .bili-dyn-list__item { margin-bottom: 8px; }
+  .bili-dyn-item { background: var(--bg1, #fff); border-radius: 6px; padding: 16px 20px; box-sizing: border-box; }
+  .bili-dyn-item__header { display: flex; align-items: center; gap: 10px; color: var(--text1, #18191c); }
+  .bili-dyn-avatar { width: 48px; height: 48px; border-radius: 50%; background: var(--graph_bg_thick, #e3e5e7); }
+  .bili-dyn-item__name { font-weight: 600; font-size: 14px; }
+  .bili-dyn-item__time { color: var(--text3, #9499a0); font-size: 12px; margin-top: 2px; }
+  .bili-dyn-item__body { margin-top: 10px; font-size: 15px; line-height: 24px; white-space: pre-wrap; }
+  .bili-dyn-item__fake-image { margin-top: 10px; height: 120px; border-radius: 6px; background: linear-gradient(135deg, #dff6fd, #ffe3ef); }
+  .bili-dyn-list-loading { text-align: center; color: var(--text3, #9499a0); padding: 10px 0; font-size: 14px; }
+  .bili-dyn-list-no-more { text-align: center; color: var(--text3, #9499a0); padding: 16px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+  <div class="fake-nav"></div>
+  <main class="space-dynamic">
+    <div class="space-dynamic-inner">
+      <div class="content">
+        <div class="bili-dyn-list">
+          <div class="bili-dyn-list__items"></div>
+          <div class="bili-dyn-list-loading" style="display:none">正在玩命加载…</div>
+          <div class="bili-dyn-list-no-more" style="display:none">你已经到达世界的尽头</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+<script>
+(function () {
+  const params = new URLSearchParams(location.search);
+  const TOTAL = Math.max(0, Number(params.get('total') || 25));
+  const API_PAGE = 12;
+  const NOMV = params.get('nomv') === '1';
+  const REBUILD = params.get('rebuild') === '1';
+  const items = [];
+  let status = 'INITIAL';
+  const listEl = document.querySelector('.bili-dyn-list');
+  const itemsEl = document.querySelector('.bili-dyn-list__items');
+  const noMoreEl = document.querySelector('.bili-dyn-list-no-more');
+  const loadingEl = document.querySelector('.bili-dyn-list-loading');
+
+  function itemHtml(index) {
+    const text = items[index] ? items[index].text : '';
+    const withImage = index % 2 === 0;
+    return '<div class="bili-dyn-item">' +
+      '<div class="bili-dyn-item__header">' +
+      '<div class="bili-dyn-avatar"></div>' +
+      '<div><div class="bili-dyn-item__name">测试UP主</div>' +
+      '<div class="bili-dyn-item__time">2026-10-' + String((index % 28) + 1).padStart(2, '0') + ' 12:00</div></div>' +
+      '</div>' +
+      '<div class="bili-dyn-item__body">' + text + '</div>' +
+      (withImage ? '<div class="bili-dyn-item__fake-image"></div>' : '') +
+      '</div>';
+  }
+
+  function makeItem(index) {
+    const el = document.createElement('div');
+    el.className = 'bili-dyn-list__item';
+    el.dataset.idx = String(index);
+    el.innerHTML = itemHtml(index);
+    return el;
+  }
+
+  function render() {
+    if (REBUILD) {
+      itemsEl.replaceChildren(...items.map((_, i) => makeItem(i)));
+    } else {
+      while (itemsEl.children.length > items.length) itemsEl.lastElementChild.remove();
+      for (let i = 0; i < items.length; i += 1) {
+        let el = itemsEl.children[i];
+        if (!el) {
+          el = makeItem(i);
+          itemsEl.appendChild(el);
+        }
+        el.dataset.idx = String(i);
+        el.querySelector('.bili-dyn-item__body').textContent = items[i].text;
+      }
+    }
+    noMoreEl.style.display = status === 'NO_MORE' ? '' : 'none';
+    loadingEl.style.display = status === 'LOADING' ? '' : 'none';
+  }
+
+  function loadmore() {
+    if (status === 'LOADING' || status === 'NO_MORE') return;
+    status = 'LOADING';
+    render();
+    const next = items.length + 1;
+    window.setTimeout(function () {
+      for (let n = next; n <= Math.min(TOTAL, next + API_PAGE - 1); n += 1) {
+        items.push({
+          id: n,
+          text: '动态 #' + n + ' — 这是一条用于测试翻页的动态内容。' +
+            (n % 3 === 0 ? '这条内容更长一些，用来模拟不同动态的高度差异。' : ''),
+        });
+      }
+      status = items.length >= TOTAL ? 'NO_MORE' : 'FETCHED';
+      render();
+    }, 160);
+  }
+
+  const vm = {
+    list: items,
+    loadmore: loadmore,
+    _getList: function () { return loadmore(); },
+    $nextTick: function (cb) { window.setTimeout(cb, 0); },
+  };
+  Object.defineProperty(vm, 'status', {
+    get: function () { return status; },
+    set: function (value) { status = value; },
+  });
+
+  for (let n = 1; n <= Math.min(TOTAL, API_PAGE); n += 1) {
+    items.push({
+      id: n,
+      text: '动态 #' + n + ' — 这是一条用于测试翻页的动态内容。' +
+        (n % 3 === 0 ? '这条内容更长一些，用来模拟不同动态的高度差异。' : ''),
+    });
+  }
+  status = items.length >= TOTAL ? 'NO_MORE' : 'FETCHED';
+  render();
+
+  if (!NOMV) listEl.__vue__ = vm;
+  window.__fakeVm = vm;
+  // 模拟切换“全部/视频”tab：列表被重置回第一页
+  window.__fakeReset = function () {
+    items.length = 0;
+    for (let n = 1; n <= Math.min(TOTAL, API_PAGE); n += 1) {
+      items.push({
+        id: n,
+        text: '动态 #' + n + ' — 这是一条用于测试翻页的动态内容。' +
+          (n % 3 === 0 ? '这条内容更长一些，用来模拟不同动态的高度差异。' : ''),
+      });
+    }
+    status = items.length >= TOTAL ? 'NO_MORE' : 'FETCHED';
+    render();
+    window.scrollTo(0, 0);
+  };
+
+  if (NOMV) {
+    window.addEventListener('scroll', function () {
+      if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 80) loadmore();
+    }, { passive: true });
+  }
+
+  window.scrollTo(0, 0);
+})();
+</script>
+</body>
+</html>
