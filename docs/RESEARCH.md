@@ -202,6 +202,9 @@ const build = (view) => {
 - 响应 item 形状（实测）：`{jump_url, opus_id, content, badge, author, cover:{url,width,height}, stat:{view,like}, pub_time}`；
   `author/pub_time` 可能为空字符串，`jump_url` 是协议相对地址（`//www.bilibili.com/opus/...`）。
 - 对阶段 2 的建议：与动态页一致，页大小取自动加载批次 **20**，保留原生自动加载作为下一页预取。
+- 封面图床（`i0.hdslb.com` 等）支持在 URL 后追加 `@640w.webp` 按宽度压缩：
+  实测同一张封面原图 342KB → `@640w.webp` 25KB → `@480w.webp` 17KB（`@640w_1c.webp` 会额外裁切，较大）。
+  图文卡片使用 `@640w.webp`，并提供“图片压缩”开关允许切换回原图。
 
 
 ### 3.4 卡片 DOM / CSS（原生）

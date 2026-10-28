@@ -36,7 +36,6 @@ function buildOpusItem(index) {
   const naturalWidth = 1200;
   const naturalHeight = Math.round(naturalWidth / ratio);
   const hasCover = index % 7 !== 0;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${naturalWidth}" height="${naturalHeight}"><rect width="100%" height="100%" fill="hsl(${(index * 47) % 360},70%,80%)"/><text x="50%" y="50%" font-family="sans-serif" font-size="90" text-anchor="middle" dominant-baseline="middle" fill="#333">#${index}</text></svg>`;
   const item = {
     opus_id: String(900000 + index),
     jump_url: `//www.bilibili.com/opus/${900000 + index}`,
@@ -47,7 +46,8 @@ function buildOpusItem(index) {
   };
   if (hasCover) {
     item.cover = {
-      url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+      // 用 hdslb 域名模拟真实封面：脚本会追加 @640w.webp，e2e 里用路由拦下并返回占位图
+      url: `https://i0.hdslb.com/bfs/__test__/opus-${index}.svg`,
       width: naturalWidth,
       height: naturalHeight,
     };

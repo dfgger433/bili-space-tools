@@ -27,6 +27,13 @@ export function coverThumbUrl(url, width = COVER_THUMB_WIDTH) {
   return `${value}@${w}w.webp`;
 }
 
+/** 根据“图片压缩”开关选择封面地址 */
+export function coverDisplaySrc(cover, compress = true) {
+  if (!cover) return '';
+  if (compress) return cover.thumbSrc || coverThumbUrl(cover.src);
+  return cover.src || '';
+}
+
 export function normalizeHref(url) {
   return normalizeUrl(url) || 'javascript:void(0)';
 }
@@ -66,7 +73,8 @@ export function toItem(view, index, columnWidth) {
   const cover =
     view && view.cover
       ? {
-          src: coverThumbUrl(view.cover.url),
+          src: normalizeUrl(view.cover.url),
+          thumbSrc: coverThumbUrl(view.cover.url),
           width: Math.ceil(columnWidth),
           height: Math.ceil(natural.coverHeight),
           naturalWidth: Number(view.cover.width) || 0,
@@ -91,7 +99,8 @@ export function fromInstanceItem(item, fallbackIndex) {
   let cover = null;
   if (cached && cached.src) {
     cover = {
-      src: coverThumbUrl(cached.src),
+      src: normalizeUrl(cached.src),
+      thumbSrc: coverThumbUrl(cached.src),
       width: Number(cached.width) || Number(item && item.width) || 0,
       height: Number(cached.height) || 0,
       naturalWidth: Number(view.cover && view.cover.width) || 0,
@@ -101,7 +110,8 @@ export function fromInstanceItem(item, fallbackIndex) {
     const width = Number(item && item.width) || 0;
     const natural = computeNaturalSize(view, width || 190);
     cover = {
-      src: coverThumbUrl(view.cover.url),
+      src: normalizeUrl(view.cover.url),
+      thumbSrc: coverThumbUrl(view.cover.url),
       width: Math.ceil(width || natural.coverHeight),
       height: Math.ceil(natural.coverHeight),
       naturalWidth: Number(view.cover.width) || 0,

@@ -37,6 +37,14 @@ async function openPage(browser, base, query = '') {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (err) => errors.push(String(err)));
+  // 假接口返回 hdslb 封面 URL；用路由拦截，原图和 @640w.webp 都返回占位图
+  await page.route('https://i0.hdslb.com/**', async (route) => {
+    const url = route.request().url();
+    const match = url.match(/opus-(\d+)\.svg/);
+    const index = match ? Number(match[1]) : 1;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><rect width="100%" height="100%" fill="hsl(${(index * 47) % 360},70%,80%)"/><text x="50%" y="50%" font-family="sans-serif" font-size="120" text-anchor="middle" dominant-baseline="middle" fill="#333">#${index}</text></svg>`;
+    await route.fulfill({ status: 200, contentType: 'image/svg+xml', body: svg });
+  });
   // 用 addInitScript 模拟 document-start 注入（脚本需要提前装接口观察器）
   await page.addInitScript({ path: SCRIPT });
   await page.goto(`${base}/631063962/upload/opus${query}`, { waitUntil: 'load' });
@@ -233,6 +241,52 @@ async function runNetworkTest(browser, base) {
   console.log('图文网络抓包模式测试通过');
 }
 
+async function runCompressionToggleTest(browser, base) {
+  console.log('--- 图片压缩开关 ---');
+  const { context, page, errors } = await openPage(browser, base);
+  const firstImgSrc = () =>
+    page.evaluate(() => document.querySelector('.bt-opus-item img')?.getAttribute('src') || '');
+  const switchChecked = () => page.locator('.bt-opus-switch__input').isChecked();
+
+  let src = await firstImgSrc();
+  assert.match(src, /@640w\.webp$/, '默认应加载压缩图');
+  assert.equal(await switchChecked(), true, '默认开关应为开启');
+  assert.equal((await opusState(page)).compressImages, true);
+  await page.locator('.bt-opus-settings').scrollIntoViewIfNeeded();
+  await page.locator('.bt-opus-settings').screenshot({
+    path: path.join(SHOTS, 'opus-compress-switch.png'),
+  });
+
+  // 关闭压缩
+  await page.evaluate(() => {
+    document.querySelector('.bt-opus-switch__input')?.click();
+  });
+  await page.waitForTimeout(500);
+  src = await firstImgSrc();
+  assert.doesNotMatch(src, /@640w\.webp/, '关闭后应加载原图');
+  assert.equal(await switchChecked(), false);
+  assert.equal((await opusState(page)).compressImages, false);
+
+  // 刷新后保持关闭
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => window.BILI_TOOLS?.opus?.active === true, null, { timeout: 25000 });
+  await page.waitForTimeout(600);
+  assert.equal(await switchChecked(), false, '刷新后应保持关闭');
+  src = await firstImgSrc();
+  assert.doesNotMatch(src, /@640w\.webp/, '刷新后仍应加载原图');
+
+  // 重新开启
+  await page.evaluate(() => {
+    document.querySelector('.bt-opus-switch__input')?.click();
+  });
+  await page.waitForTimeout(500);
+  src = await firstImgSrc();
+  assert.match(src, /@640w\.webp$/, '重新开启后应加载压缩图');
+  assert.deepEqual(errors, [], '不应有未捕获异常');
+  await context.close();
+  console.log('图片压缩开关测试通过');
+}
+
 async function main() {
   await mkdir(SHOTS, { recursive: true });
   const executablePath = await findBrowser();
@@ -242,6 +296,7 @@ async function main() {
   try {
     await runVueTest(browser, server.url);
     await runNetworkTest(browser, server.url);
+    await runCompressionToggleTest(browser, server.url);
   } finally {
     await browser.close();
     await server.close();

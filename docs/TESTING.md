@@ -44,7 +44,7 @@ npm run build
 
 1. 打开 Tampermonkey 管理面板 → 实用工具 → 导入文件：
    - 动态：`dist/01-动态翻页.user.js`（版本 **0.2.0**）
-   - 图文：`dist/02-图文翻页.user.js`（版本 **0.1.0**）
+   - 图文：`dist/02-图文翻页.user.js`（版本 **0.1.2**）
 2. 两个脚本作用于不同页面，可以同时启用。
 3. 打开：
    - 动态：`https://space.bilibili.com/<uid>/dynamic`
@@ -79,9 +79,10 @@ npm run build
 | 7 | 一直翻到最后一页 | “下一页”消失，计数变成“共 X 页 / N 个” |
 | 8 | 切换 全部图文 / 专栏 / 动态 | 回到第 1 页，显示对应类型的图文 |
 | 9 | 缩小/放大窗口 | 列数/列宽重排，当前页仍 20 张卡片 |
-| 10 | 检查卡片 | 封面比例、2 行标题、点赞/浏览、充电徽章、作者·时间副标题、纯文字卡片；点击卡片能打开 opus 页 |
-| 11 | 刷新页面 / 浏览器前进后退 | 回到第 1 页；脚本不重复注入 |
-| 12 | 切换系统暗色模式 | 卡片/分页条跟随 B 站原生变量 |
+| 10 | 点击分页条下方的“图片压缩”开关 | 默认开启；关闭后当前页封面改为原图（更大更清晰），刷新后仍保持关闭；再开启恢复缩略图 |
+| 11 | 检查卡片 | 封面比例、2 行标题、点赞/浏览、充电徽章、作者·时间副标题、纯文字卡片；点击卡片能打开 opus 页 |
+| 12 | 刷新页面 / 浏览器前进后退 | 回到第 1 页；脚本不重复注入 |
+| 13 | 切换系统暗色模式 | 卡片/分页条跟随 B 站原生变量 |
 
 ### 反馈方式
 
@@ -97,8 +98,9 @@ npm run build
 |---|---|
 | `window.BILI_TOOLS.dyn.state` | 动态：page / totalPages / busy / adapter / loaded / hasMore / status |
 | `window.BILI_TOOLS.dyn.goTo(5)` | 动态：跳到第 5 页（会按需加载） |
-| `window.BILI_TOOLS.opus.state` | 图文：page / totalPages / loaded / hasMore / adapter / columnWidth / columns / tab |
+| `window.BILI_TOOLS.opus.state` | 图文：page / totalPages / loaded / hasMore / adapter / columnWidth / columns / tab / compressImages |
 | `window.BILI_TOOLS.opus.goTo(2)` | 图文：跳到第 2 页（会按需加载） |
+| `window.BILI_TOOLS.opus.setCompressImages(false)` | 图文：切换图片压缩（等价于点界面开关） |
 | `window.BILI_TOOLS.opus.refresh()` | 图文：强制重扫并重绘当前页 |
 | `localStorage["biliTools:debug"]="1"` | 输出决策日志到控制台 |
 
@@ -111,3 +113,4 @@ npm run build
 - 图文页会隐藏原生 feed 并用自建网格渲染；原生卡片的 class/CSS 来自页面本身，若 B 站改版导致样式缺失，
   卡片外观可能退化，但分页/数据逻辑不受影响（控制台会提示数据通道）。
 - 图文页若既取不到 Vue 实例、也抓不到接口响应，会完全不接管（保持原生页面）。
+

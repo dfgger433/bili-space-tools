@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   PAGE_SIZE,
   computeNaturalSize,
+  coverDisplaySrc,
   coverThumbUrl,
   estimateTextHeight,
   fromInstanceItem,
@@ -86,6 +87,18 @@ test('封面缩略图：按宽度压成 webp，已有参数不重复追加', () 
   assert.equal(coverThumbUrl(''), '');
 });
 
+test('图片压缩开关：按需选择原图 / 压缩图', () => {
+  const cover = { src: 'https://i0.hdslb.com/a.jpg', thumbSrc: 'https://i0.hdslb.com/a.jpg@640w.webp' };
+  assert.equal(coverDisplaySrc(cover, true), cover.thumbSrc);
+  assert.equal(coverDisplaySrc(cover, false), cover.src);
+  assert.equal(coverDisplaySrc(null, true), '');
+  // 没有 thumbSrc 时自动补
+  assert.equal(
+    coverDisplaySrc({ src: 'https://i0.hdslb.com/b.jpg' }, true),
+    'https://i0.hdslb.com/b.jpg@640w.webp',
+  );
+});
+
 test('原始 item 映射出 cover 与高度', () => {
   const cw = 240;
   const view = {
@@ -97,7 +110,8 @@ test('原始 item 映射出 cover 与高度', () => {
   const item = toItem(view, 0, cw);
   assert.equal(item.key, '42');
   assert.equal(item.width, cw);
-  assert.equal(item.cover.src, 'https://i0.hdslb.com/a.jpg@640w.webp');
+  assert.equal(item.cover.src, 'https://i0.hdslb.com/a.jpg');
+  assert.equal(item.cover.thumbSrc, 'https://i0.hdslb.com/a.jpg@640w.webp');
   assert.equal(item.cover.width, cw);
   assert.equal(item.cover.height, 180);
   assert.equal(item.height, Math.floor(180 + 17 + 4));
@@ -118,7 +132,8 @@ test('页面已映射 item 复用原生 width/height/cover', () => {
   assert.equal(item.index, 3);
   assert.equal(item.width, 190);
   assert.equal(item.height, 270);
-  assert.equal(item.cover.src, 'https://i0.hdslb.com/b.jpg@640w.webp');
+  assert.equal(item.cover.src, 'https://i0.hdslb.com/b.jpg');
+  assert.equal(item.cover.thumbSrc, 'https://i0.hdslb.com/b.jpg@640w.webp');
   assert.equal(item.cover.width, 190);
   assert.equal(item.cover.height, 249);
 });

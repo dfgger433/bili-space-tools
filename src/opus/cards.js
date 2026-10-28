@@ -1,6 +1,6 @@
 // 用 B 站原生 class 重建图文卡片（外观依赖页面已加载的 .opus-card / .bili-cover-card 样式）。
 import { create } from '../shared/dom.js';
-import { normalizeHref, statText } from './model.js';
+import { coverDisplaySrc, normalizeHref, statText } from './model.js';
 
 const BADGE_DEFAULT = {
   text: '充电专属',
@@ -52,11 +52,12 @@ function appendCoverBadge(coverEl, view) {
   coverEl.appendChild(tags);
 }
 
-function buildCoverCard(item) {
+function buildCoverCard(item, options = {}) {
   const view = item.view || {};
   const href = normalizeHref(view.jump_url);
   const title = view.content || '';
   const cover = item.cover || {};
+  const src = coverDisplaySrc(cover, options.compressImages !== false);
   const ratio = cover.width > 0 && cover.height > 0 ? (cover.height / cover.width) * 100 : 100;
   const section = create('div', { className: 'opus-card--with-cover' });
 
@@ -69,7 +70,7 @@ function buildCoverCard(item) {
   thumb.appendChild(
     create('img', {
       attrs: {
-        src: cover.src,
+        src,
         alt: title.slice(0, 80),
         decoding: 'async',
       },
@@ -122,12 +123,12 @@ function buildTextCard(item) {
 }
 
 /** 渲染一张图文卡片（原生 DOM 结构） */
-export function buildOpusCard(item) {
+export function buildOpusCard(item, options = {}) {
   const root = create('div', {
     className: 'opus-card',
     attrs: { 'data-bt-key': item.key || '' },
   });
-  root.appendChild(item.cover && item.cover.src ? buildCoverCard(item) : buildTextCard(item));
+  root.appendChild(item.cover && item.cover.src ? buildCoverCard(item, options) : buildTextCard(item));
 
   const view = item.view || {};
   const meta = [view.author, view.pub_time].filter(Boolean).join(' · ');

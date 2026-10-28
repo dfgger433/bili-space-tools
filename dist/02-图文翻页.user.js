@@ -4,7 +4,7 @@
 // @name         B站图文翻页（每页20条）
 // @name:zh-CN   B站图文翻页（每页20条）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.1.1
+// @version      0.1.2
 // @description  把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式。
 // @description:zh-CN 把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式。
 // @author       bili-space-tools
@@ -498,6 +498,11 @@
     const w = Math.max(160, Math.round(Number(width) || COVER_THUMB_WIDTH));
     return `${value}@${w}w.webp`;
   }
+  function coverDisplaySrc(cover, compress = true) {
+    if (!cover) return "";
+    if (compress) return cover.thumbSrc || coverThumbUrl(cover.src);
+    return cover.src || "";
+  }
   function normalizeHref(url) {
     return normalizeUrl(url) || "javascript:void(0)";
   }
@@ -526,7 +531,8 @@
   function toItem(view, index, columnWidth) {
     const natural = computeNaturalSize(view, columnWidth);
     const cover = view && view.cover ? {
-      src: coverThumbUrl(view.cover.url),
+      src: normalizeUrl(view.cover.url),
+      thumbSrc: coverThumbUrl(view.cover.url),
       width: Math.ceil(columnWidth),
       height: Math.ceil(natural.coverHeight),
       naturalWidth: Number(view.cover.width) || 0,
@@ -548,7 +554,8 @@
     let cover = null;
     if (cached && cached.src) {
       cover = {
-        src: coverThumbUrl(cached.src),
+        src: normalizeUrl(cached.src),
+        thumbSrc: coverThumbUrl(cached.src),
         width: Number(cached.width) || Number(item && item.width) || 0,
         height: Number(cached.height) || 0,
         naturalWidth: Number(view.cover && view.cover.width) || 0,
@@ -558,7 +565,8 @@
       const width = Number(item && item.width) || 0;
       const natural = computeNaturalSize(view, width || 190);
       cover = {
-        src: coverThumbUrl(view.cover.url),
+        src: normalizeUrl(view.cover.url),
+        thumbSrc: coverThumbUrl(view.cover.url),
         width: Math.ceil(width || natural.coverHeight),
         height: Math.ceil(natural.coverHeight),
         naturalWidth: Number(view.cover.width) || 0,
@@ -704,11 +712,12 @@
     tags.appendChild(tag);
     coverEl.appendChild(tags);
   }
-  function buildCoverCard(item) {
+  function buildCoverCard(item, options = {}) {
     const view = item.view || {};
     const href = normalizeHref(view.jump_url);
     const title = view.content || "";
     const cover = item.cover || {};
+    const src = coverDisplaySrc(cover, options.compressImages !== false);
     const ratio = cover.width > 0 && cover.height > 0 ? cover.height / cover.width * 100 : 100;
     const section = create("div", { className: "opus-card--with-cover" });
     const coverEl = create("a", {
@@ -720,7 +729,7 @@
     thumb.appendChild(
       create("img", {
         attrs: {
-          src: cover.src,
+          src,
           alt: title.slice(0, 80),
           decoding: "async"
         }
@@ -765,12 +774,12 @@
     if (icons.childNodes.length) section.appendChild(icons);
     return section;
   }
-  function buildOpusCard(item) {
+  function buildOpusCard(item, options = {}) {
     const root = create("div", {
       className: "opus-card",
       attrs: { "data-bt-key": item.key || "" }
     });
-    root.appendChild(item.cover && item.cover.src ? buildCoverCard(item) : buildTextCard(item));
+    root.appendChild(item.cover && item.cover.src ? buildCoverCard(item, options) : buildTextCard(item));
     const view = item.view || {};
     const meta = [view.author, view.pub_time].filter(Boolean).join(" · ");
     if (meta) {
@@ -783,6 +792,28 @@
       );
     }
     return root;
+  }
+
+  // src/opus/settings.js
+  var STORAGE_KEY = "biliTools:opus";
+  var DEFAULT_SETTINGS = {
+    // 开启后封面加载压缩缩略图（@640w.webp，快）；关闭则加载原图（画质最好，但慢、流量大）
+    compressImages: true
+  };
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return { ...DEFAULT_SETTINGS, ...parsed && typeof parsed === "object" ? parsed : {} };
+    } catch {
+      return { ...DEFAULT_SETTINGS };
+    }
+  }
+  function saveSettings(settings) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    } catch {
+    }
   }
 
   // src/opus/adapter.js
@@ -1024,7 +1055,7 @@
   }
 
   // src/scripts/opus-pagination.js
-  var VERSION = "0.1.1";
+  var VERSION = "0.1.2";
   var SCOPE = "opus";
   var STYLE_ID2 = "bili-tools-opus-style";
   var ACTIVE_CLASS = "bili-tools-opus-active";
@@ -1057,6 +1088,9 @@
     wrapEl: null,
     gridEl: null,
     pager: null,
+    settings: loadSettings(),
+    settingsEl: null,
+    settingsInput: null,
     routeKey: "",
     nextBootAt: 0,
     observer: null,
@@ -1079,6 +1113,15 @@
 .bt-opus-pager .vui_pagenation--btn-more.vui_button--disabled{display:none}
 .bili-tools-opus-active .opus-footer{padding:24px 0 32px}
 .bt-opus-busy{color:var(--text2,#61666d);font-size:12px;text-align:center;padding-top:8px}
+.bt-opus-settings{display:flex;justify-content:center;margin-top:8px}
+.bt-opus-switch{display:inline-flex;align-items:center;gap:8px;font-size:12px;line-height:18px;color:var(--text2,#61666d);cursor:pointer;user-select:none}
+.bt-opus-switch__input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.bt-opus-switch__track{position:relative;flex:none;width:32px;height:18px;border-radius:9px;background:var(--graph_bg_thick,#e3e5e7);transition:background-color .2s}
+.bt-opus-switch__thumb{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .2s}
+.bt-opus-switch__input:checked+.bt-opus-switch__track{background:var(--brand_blue,#00aeec)}
+.bt-opus-switch__input:checked+.bt-opus-switch__track .bt-opus-switch__thumb{transform:translateX(14px)}
+.bt-opus-switch__input:focus-visible+.bt-opus-switch__track{outline:2px solid var(--brand_blue,#00aeec);outline-offset:2px}
+.bt-opus-switch:hover{color:var(--brand_blue,#00aeec)}
 `;
   function isOpusRoute() {
     return /^\/\d+\/upload\/opus(?:\/|$)/.test(location.pathname);
@@ -1208,6 +1251,44 @@
     if (footer && state.pager.el.parentElement !== footer) {
       footer.appendChild(state.pager.el);
     }
+    ensureSettingsUi(footer);
+  }
+  function buildSettingsUi() {
+    const wrap = create("div", { className: "bt-opus-settings" });
+    const label = create("label", {
+      className: "bt-opus-switch",
+      attrs: { title: "开启后加载压缩后的封面（更快、省流量）；关闭则加载原图" }
+    });
+    const input = create("input", {
+      className: "bt-opus-switch__input",
+      attrs: { type: "checkbox", "aria-label": "图片压缩" }
+    });
+    input.addEventListener("change", () => setCompressImages(input.checked));
+    label.appendChild(input);
+    const track = create("span", { className: "bt-opus-switch__track" });
+    track.appendChild(create("span", { className: "bt-opus-switch__thumb" }));
+    label.appendChild(track);
+    label.appendChild(create("span", { className: "bt-opus-switch__label", text: "图片压缩" }));
+    wrap.appendChild(label);
+    state.settingsInput = input;
+    input.checked = Boolean(state.settings.compressImages);
+    return wrap;
+  }
+  function ensureSettingsUi(footer) {
+    if (!state.settingsEl) state.settingsEl = buildSettingsUi();
+    const target = footer || document.querySelector(".opus-footer") || state.opusEl;
+    if (target && state.settingsEl.parentElement !== target) target.appendChild(state.settingsEl);
+    if (state.settingsInput) state.settingsInput.checked = Boolean(state.settings.compressImages);
+  }
+  function setCompressImages(value) {
+    const next = Boolean(value);
+    if (state.settings.compressImages === next) return;
+    state.settings.compressImages = next;
+    saveSettings(state.settings);
+    if (state.settingsInput) state.settingsInput.checked = next;
+    preloadedCovers.clear();
+    refresh(true);
+    toast(next ? "已开启图片压缩（封面加载更快）" : "已关闭图片压缩（封面加载原图）", { duration: 1800 });
   }
   function resolveLayout() {
     let cw = state.adapter ? state.adapter.getColumnWidth() : 0;
@@ -1288,8 +1369,9 @@
   }
   var preloadedCovers = /* @__PURE__ */ new Set();
   function preloadCovers(items) {
+    if (!state.settings.compressImages) return;
     for (const item of items) {
-      const src = item.cover && item.cover.src;
+      const src = coverDisplaySrc(item.cover, true);
       if (!src || preloadedCovers.has(src)) continue;
       preloadedCovers.add(src);
       const img = new Image();
@@ -1343,7 +1425,9 @@
           transform: `translate(${pos.left}px, ${pos.top}px)`
         }
       });
-      el.appendChild(buildOpusCard(item));
+      el.appendChild(
+        buildOpusCard(item, { compressImages: Boolean(state.settings.compressImages) })
+      );
       frag.appendChild(el);
     });
     grid.replaceChildren(frag);
@@ -1526,6 +1610,11 @@
       state.pager.destroy();
       state.pager = null;
     }
+    if (state.settingsEl) {
+      state.settingsEl.remove();
+      state.settingsEl = null;
+      state.settingsInput = null;
+    }
     if (state.wrapEl) {
       state.wrapEl.remove();
       state.wrapEl = null;
@@ -1585,12 +1674,14 @@
           columnWidth: state.cw,
           columns: state.columns,
           tab: state.tab,
-          busy: state.busy
+          busy: state.busy,
+          compressImages: Boolean(state.settings.compressImages)
         };
       },
       goTo: (page) => goTo(page),
       next: () => goTo(state.page + 1),
       prev: () => goTo(state.page - 1),
+      setCompressImages: (value) => setCompressImages(value),
       refresh: () => {
         if (state.active) refresh(true);
         else void boot();
