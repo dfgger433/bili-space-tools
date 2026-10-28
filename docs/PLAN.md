@@ -48,16 +48,20 @@
 6. 切 tab / 刷新 / 换 UP 主后回第 1 页且不重复注入。
 7. 展开评论、图片灯箱、暗色模式正常；控制台无报错。
 
-## 2. 阶段 2：图文页翻页（42 条/页）
+## 2. 阶段 2：图文页翻页（20 条/页，v0.1.0 已实现）
 
-- 文件：`dist/02-图文翻页.user.js`；match：`*://*.bilibili.com/*/upload/opus`、`*://*.bilibili.com/*/upload/opus/*`
-- 数据双通道：
-  1. Vue 实例：`#app.__vue_app__._instance` 遍历 vnode，定位 `__name === "WaterfallGrid"`（或按 `props.list` 形状），读取原生 `width/height` 与 `vnode.props.onLoadMore`。
-  2. 抓包：`@run-at document-start` 钩 XHR/fetch，捕获 `/x/polymer/web-dynamic/v1/opus/feed/space`，自行换算卡片尺寸；加载更多用原生滚动触发。
-- 接管渲染：隐藏原生 `.opus-feed`（保留其数据/请求逻辑），在 `.opus-body` 插入自己的网格；卡片复用 `opus-card` / `bili-cover-card` 原生 class 与 CSS 变量重建。
-- 阶段 2 默认布局 = 严格复刻原生瀑布流（首 10 行优先，之后最短列），确保“只加翻页、视觉不变”。
-- 分页条放 `.opus-footer`（原生 `vui_pagenation`）；`PAGE_SIZE = 42`；翻页顺序加载；resize 重排；切 tab 重置。
-- 两通道都失败时完全不接管。
+- 文件：`dist/02-图文翻页.user.js`；match：`*://*.bilibili.com/*/upload/opus`、`*://*.bilibili.com/*/upload/opus/*`；`@run-at document-start`。
+- **每页 20 条**（2026-10-28 实测 B 站图文每次自动加载 20 条；用户确认按 20 实现），**保留原生自动加载**作为下一页预取。
+- 数据双通道（`src/opus/adapter.js`）：
+  1. Vue 实例：`#app.__vue_app__._instance` 遍历 vnode，定位 `__name === "WaterfallGrid"`（或按 `props.list` 形状），读取原生 `width/height/columnWidth` 与 `vnode.props.onLoadMore`；
+  2. 抓包：`installCapture()` 只读观察页面自身对 `/x/polymer/web-dynamic/v1/opus/feed/space` 的 XHR/fetch，自行换算卡片尺寸；加载更多退化为滚到底触发页面自身的加载。
+- 接管渲染：给 `.opus` 加 `.bili-tools-opus-active` 隐藏原生 `.opus-feed`（保留其数据/请求/滚动逻辑），在 `.opus-body` 的 feed 后插入自己的网格；卡片用原生 class 重建（`src/opus/cards.js`）。
+- 布局复刻原生 `WaterfallGrid`（`src/opus/layout.js`）：列宽公式、前 10 条行优先 + 之后最短列、容器高度；窗口缩放按原生公式重排。
+- 预取：滚到底触发原生加载的 20 条不会渲染进当前页（渲染 key 只看当前页切片），分页条位置不变；点下一页即时打开。
+- 分页条放 `.opus-footer`，复用 `src/shared/pager.js`；跳页需要时顺序加载（`onLoadMore`），远跳先确认；切 tab/刷新回第 1 页。
+- 两通道都失败时完全不接管；`ERROR/PAUSED` 允许重试；重复注入只保留首个实例的调试入口。
+- 复用 `src/shared/`：`pager.js`、`dom.js`、`log.js`、`style.js`、`toast.js`（均已通过阶段 1 测试）。
+- 测试：`npm run test:e2e:opus`（Vue 通道、网络通道、预取、切 tab、resize、重复注入）+ 单元测试（布局/高度/URL/分页）。
 
 ## 3. 阶段 3：统一行高
 

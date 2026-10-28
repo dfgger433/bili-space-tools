@@ -4,7 +4,7 @@
 // @name         B站动态翻页（每页12条）
 // @name:zh-CN   B站动态翻页（每页12条）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.2.0
+// @version      0.2.1
 // @description  把 B 站用户空间动态页改为翻页浏览，每页 12 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生分页样式。
 // @description:zh-CN 把 B 站用户空间动态页改为翻页浏览，每页 12 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生分页样式。
 // @author       bili-space-tools
@@ -122,7 +122,24 @@
     style.id = id;
     style.type = "text/css";
     style.textContent = css;
-    (document.head || document.documentElement).appendChild(style);
+    const attach = () => {
+      const root = document.head || document.documentElement;
+      if (!root) return false;
+      if (!style.isConnected) root.appendChild(style);
+      return true;
+    };
+    if (!attach()) {
+      const timer = setInterval(() => {
+        if (attach()) clearInterval(timer);
+      }, 10);
+      document.addEventListener(
+        "DOMContentLoaded",
+        () => {
+          if (attach()) clearInterval(timer);
+        },
+        { once: true }
+      );
+    }
     return style;
   }
 
@@ -465,7 +482,7 @@
   }
 
   // src/scripts/dyn-pagination.js
-  var VERSION = "0.2.0";
+  var VERSION = "0.2.1";
   var SCOPE = "dyn";
   var PAGE_SIZE = 12;
   var LIST_SELECTOR = ".bili-dyn-list";
@@ -1024,6 +1041,6 @@
     window[GLOBAL_KEY] = { version: VERSION, startedAt: Date.now() };
     main();
   } else {
-    exposeDebug();
+    log.debug("动态脚本已注入，跳过重复初始化");
   }
 })();

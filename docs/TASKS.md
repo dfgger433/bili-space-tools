@@ -32,23 +32,26 @@
 - [x] 构建 `dist/01-动态翻页.user.js`
 - [x] 手动验收清单（`docs/TESTING.md`）
 - [x] commit + tag `v0.2.0`
+- [x] `0.2.1` 内部健壮性修复：共享 `style.js` 支持 document-start 注入、重复注入不再覆盖调试入口（无行为变化）
 - [ ] 用户真实页面实测（等待反馈）
 
-## 阶段 2：图文页翻页（分支 `feat/opus-pagination`）
+## 阶段 2：图文页翻页（分支 `feat/opus-pagination`，v0.1.0）
 
 > 2026-10-28 实测：B 站图文列表每次自动加载 **20 条**（type=all/dynamic 均 20/页，article 满页也是 20）。
-> 建议沿用动态页策略：每页 20 条 + 保留原生自动加载作为下一页预取。复用 `src/shared/` 已验证部件。
+> 用户确认：每页 20 条，保留原生自动加载作为下一页预取，复用 `src/shared/` 已验证部件。
 
-- [ ] 复用已验证部件：`shared/pager.js`（原生分页条）、`shared/dom.js`、`shared/log.js`、`shared/style.js`、`shared/toast.js`
-- [ ] 复用动态页已验证模式：预取数据不进当前页、原生加载条隐藏、`ERROR/PAUSED` 可重试、重复注入保护
-- [ ] 数据通道 A：Vue 实例（`WaterfallGrid` 定位、`props.list`、`onLoadMore`）
-- [ ] 数据通道 B：XHR/fetch 抓包 + 原生高度公式
-- [ ] 原生卡片 DOM 重建（有封面 / 纯文字 / 徽章 / 统计 / 副标题）
-- [ ] 原生瀑布流布局复刻（threshold 10 + 最短列）
-- [ ] 接管渲染 + 隐藏原生 feed + 分页条（20/页，待用户确认）
-- [ ] resize / tab 切换 / 失败回退
-- [ ] 假页 e2e + 卡片视觉截图
-- [ ] 构建 `dist/02-图文翻页.user.js`，交付实测
+- [x] 复用已验证部件：`shared/pager.js`（原生分页条）、`shared/dom.js`、`shared/log.js`、`shared/style.js`、`shared/toast.js`
+- [x] 复用动态页已验证模式：预取数据不进当前页、`ERROR/PAUSED` 可重试、重复注入保护
+- [x] 数据通道 A：Vue 实例（`WaterfallGrid` 定位、`props.list`、`onLoadMore`）
+- [x] 数据通道 B：XHR/fetch 抓包 + 原生高度公式
+- [x] 原生卡片 DOM 重建（有封面 / 纯文字 / 徽章 / 统计 / 副标题），封面 http→https
+- [x] 原生瀑布流布局复刻（threshold 10 + 最短列）+ 列宽公式 + resize 重排
+- [x] 接管渲染 + 隐藏原生 feed + 分页条（20/页）
+- [x] 切 tab 重置、网络通道回退、两通道都失败时不接管
+- [x] 假页 e2e（Vue 通道 + 网络通道、预取、切 tab、resize、重复注入）+ 截图
+- [x] 单元测试（布局/高度/URL/分页，新增 12 项）
+- [x] 构建 `dist/02-图文翻页.user.js`
+- [ ] 用户真实页面实测（等待反馈）
 
 ## 阶段 3：统一行高
 

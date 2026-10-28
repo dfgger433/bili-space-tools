@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>图文翻页测试页</title>
+<link rel="stylesheet" href="/参考文件/arooka_阿若卡个人动态-arooka_阿若卡动态记录-哔哩哔哩视频_files/light_CsuI.css">
+<link rel="stylesheet" href="/参考文件/arooka_阿若卡个人动态-arooka_阿若卡动态记录-哔哩哔哩视频_files/map_CsuI.css">
+<link rel="stylesheet" href="/参考文件/arooka_阿若卡个人动态-arooka_阿若卡动态记录-哔哩哔哩视频_files/index-7f7ca3ba_CsuI.css">
+<link rel="stylesheet" href="/参考文件/arooka_阿若卡个人动态-arooka_阿若卡动态记录-哔哩哔哩视频_files/Opus-22fa930a_CsuI.css">
+<link rel="stylesheet" href="/参考文件/arooka_阿若卡个人动态-arooka_阿若卡动态记录-哔哩哔哩视频_files/freshspace-zpjpp3aqht_CsuI.css">
+<style>
+  html, body { margin: 0; padding: 0; background: var(--bg1, #fff); }
+  body { font-family: "Microsoft YaHei", Arial, sans-serif; color: var(--text1, #18191c); }
+  .fake-topbar { height: 56px; background: var(--bg1); border-bottom: 1px solid var(--line_regular); position: sticky; top: 0; z-index: 10; }
+  .opus { max-width: 1458px; margin: 0 auto; padding: 20px 16px 0; box-sizing: border-box; }
+  .opus-header { margin-bottom: 24px; }
+  .content-filter { display: flex; align-items: center; }
+  .content-tab { cursor: pointer; color: var(--text3); font-weight: 600; font-size: 22px; margin-right: 28px; }
+  .content-tab.active { color: var(--text1); }
+  .opus-body { min-height: 200px; }
+  .masonry_grid_v2 { width: 100%; }
+  .opus-footer { padding: 0; }
+</style>
+</head>
+<body>
+  <div class="fake-topbar"></div>
+  <div id="app">
+    <div class="opus">
+      <div class="opus-header">
+        <div class="content-filter">
+          <div class="content-tab active">全部图文</div>
+          <div class="content-tab">专栏</div>
+          <div class="content-tab">动态</div>
+        </div>
+      </div>
+      <div class="opus-body">
+        <div class="opus-feed">
+          <div class="masonry_grid_v2" style="--container-width: 0px; --container-height: 0px;"></div>
+        </div>
+      </div>
+      <div class="opus-footer"></div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const params = new URLSearchParams(location.search);
+  const NOMV = params.get('nomv') === '1';
+  const API = '/x/polymer/web-dynamic/v1/opus/feed/space';
+  const TOTAL = 60;
+  const appEl = document.getElementById('app');
+  const masonry = document.querySelector('.masonry_grid_v2');
+  const tabs = Array.from(document.querySelectorAll('.content-tab'));
+  const views = [];
+  let hasMore = true;
+  let loading = false;
+  let page = 0;
+  let type = 'all';
+  let cw = 0;
+  let columns = 0;
+  let containerWidth = 0;
+  let fakeInstance = null;
+
+  // 与页面 countColumnWidth 相同的公式
+  function calculateLayout(width) {
+    const w = Math.min(width, 2560);
+    let cols;
+    let total;
+    if (w < 1340) {
+      cols = 4;
+      total = Math.max(1100, w) - 286;
+    } else if (w < 1560) {
+      cols = 5;
+      total = Math.max(1100, w) - 286;
+    } else if (w < 1680) {
+      cols = 5;
+      total = w - 446;
+    } else {
+      cols = 6;
+      total = w - ((w < 1860 ? 150 : 240) + 16 + 280);
+    }
+    const columnWidth = (total - 20 * (cols - 1)) / cols;
+    return { columns: cols, columnWidth, containerWidth: cols * columnWidth + (cols - 1) * 20 };
+  }
+
+  function applyLayout() {
+    const info = calculateLayout(window.innerWidth);
+    cw = info.columnWidth;
+    columns = info.columns;
+    containerWidth = info.containerWidth;
+    masonry.style.setProperty('--container-width', containerWidth + 'px');
+    masonry.style.setProperty('--container-height', '0px');
+    if (fakeInstance) fakeInstance.props.columnWidth = cw;
+  }
+
+  // 与页面 getItems 相同的自然高度公式
+  function naturalSize(view) {
+    const cover = view.cover;
+    let coverHeight = 0;
+    if (cover) {
+      const portrait = cover.width / cover.height <= 3 / 4;
+      coverHeight = portrait ? (cw / 160) * 210 : (cw / 160) * 120;
+      if (cw < 168) coverHeight *= 16 / 19;
+    }
+    const len = (view.content || '').length;
+    let textHeight = Math.ceil((len * 14) / Math.max(1, cover ? cw : cw - 20)) * 17;
+    textHeight = Math.min(textHeight, cover ? 40 : 80);
+    const extra = view.author || view.pub_time ? 24 : 0;
+    const pad = cover ? 4 : view.badge ? 68 : 46;
+    return { coverHeight, height: Math.floor(coverHeight + textHeight + pad + extra) };
+  }
+
+  function mapViews() {
+    return views.map(function (view, index) {
+      const dims = naturalSize(view);
+      return {
+        data: {
+          view,
+          cover: view.cover ? { src: view.cover.url, width: cw, height: dims.coverHeight } : undefined,
+        },
+        index,
+        width: cw,
+        height: dims.height,
+      };
+    });
+  }
+
+  function syncInstance() {
+    if (!fakeInstance) return;
+    fakeInstance.props.list = mapViews();
+    fakeInstance.props.columnWidth = cw;
+  }
+
+  function publish() {
+    window.__opusFixture = {
+      views,
+      loaded: views.length,
+      hasMore,
+      page,
+      requestNext,
+    };
+  }
+
+  function requestNext() {
+    if (loading || !hasMore) return;
+    loading = true;
+    if (fakeInstance) fakeInstance.props.loadingLock = true;
+    const nextPage = page + 1;
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', API + '?host_mid=631063962&page=' + nextPage + '&offset=' + page + '&type=' + type);
+    xhr.onload = function () {
+      try {
+        const json = JSON.parse(xhr.responseText);
+        if (json.code === 0 && json.data) {
+          views.push.apply(views, json.data.items || []);
+          page = nextPage;
+          hasMore = Boolean(json.data.has_more);
+          syncInstance();
+          publish();
+        }
+      } finally {
+        loading = false;
+        if (fakeInstance) fakeInstance.props.loadingLock = false;
+      }
+    };
+    xhr.onerror = function () {
+      loading = false;
+      if (fakeInstance) fakeInstance.props.loadingLock = false;
+    };
+    xhr.send();
+  }
+
+  function setupVue() {
+    if (NOMV) return;
+    fakeInstance = {
+      type: { __name: 'WaterfallGrid', props: {} },
+      props: { list: [], columnWidth: 0, loadingLock: false },
+      vnode: { props: { onLoadMore: requestNext } },
+      subTree: { type: 'div', children: [] },
+      isUnmounted: false,
+    };
+    appEl.__vue_app__ = {
+      _instance: { subTree: { type: 'div', children: [{ component: fakeInstance }] } },
+    };
+  }
+
+  setupVue();
+  applyLayout();
+  requestNext();
+  publish();
+
+  // 模拟 B 站图文列表的“滚到底自动加载”（脚本保留该行为作为下一页预取）
+  window.addEventListener('scroll', function () {
+    if (loading || !hasMore) return;
+    if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 80) requestNext();
+  }, { passive: true });
+
+  // 模拟切 tab：清空列表并重新拉第一页
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      tabs.forEach(function (t) { t.classList.toggle('active', t === tab); });
+      const label = tab.textContent.trim();
+      type = label === '专栏' ? 'article' : label === '动态' ? 'dynamic' : 'all';
+      views.length = 0;
+      page = 0;
+      hasMore = true;
+      syncInstance();
+      requestNext();
+      publish();
+      window.scrollTo(0, 0);
+    });
+  });
+
+  // 模拟页面自身的 resize 重算
+  window.addEventListener('resize', function () {
+    applyLayout();
+    syncInstance();
+  });
+})();
+</script>
+</body>
+</html>
