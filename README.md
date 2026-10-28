@@ -122,6 +122,7 @@ window.BILI_TOOLS.row.setClipPercent(27)
 
 ## 更新记录
 
+- `1.0.4`：02+03 兼容修复——裁剪时标题保留完整高度（封面 flex 占剩余空间）；克隆封面 eager 加载 + 原生 currentSrc 回退，修复部分图片空白；独立 03 脚本让位给 02（0.4.3）。
 - `1.0.3`：发布元数据适配 Greasy Fork（metadata block 置顶、namespace/source 指向 GitHub、作者 dfgger433）。
 - `1.0.2`：图文分页条改为相对网格居中（修复第 2 页分页按钮偏左）。
 - `1.0.1`：统一行高改为自动行平均值 + 可调超出比例阈值（默认 27%，油猴菜单可设，0=关闭）；

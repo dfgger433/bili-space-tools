@@ -2,7 +2,7 @@
 // @name         B站空间页增强（动态翻页/图文翻页/统一行高）
 // @name:zh-CN   B站空间页增强（动态翻页/图文翻页/统一行高）
 // @namespace    https://github.com/dfgger433/bili-space-tools
-// @version      1.0.3
+// @version      1.0.4
 // @description  单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @description:zh-CN 单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @author       dfgger433
@@ -2500,7 +2500,7 @@
   }
 
   // src/scripts/opus-uniform-row.js
-  var VERSION3 = "0.4.1";
+  var VERSION3 = "0.4.3";
   var SCOPE3 = "opus-row";
   var STYLE_ID4 = "bili-tools-opus-row-style";
   var HIDE_CLASS = "bt-opus-row-hidden";
@@ -2527,13 +2527,21 @@
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card{overflow:hidden}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
-.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .opus-card{height:100%;display:flex;flex-direction:column;overflow:hidden}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card{flex:1 1 auto!important;min-height:0!important;height:auto!important;padding-top:0!important;overflow:hidden}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail{position:absolute!important;inset:0!important;height:auto!important}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover!important}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .opus-card__title{flex:0 0 auto}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text .opus-card__icons{margin-top:auto}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
 .${BT_ROOT_CLASS} > .bt-opus-item .bili-cover-card{overflow:hidden}
 .${BT_ROOT_CLASS} > .bt-opus-item .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
-.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover}
+.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .opus-card{height:100%;display:flex;flex-direction:column;overflow:hidden}
+.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .bili-cover-card{flex:1 1 auto!important;min-height:0!important;height:auto!important;padding-top:0!important;overflow:hidden}
+.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail{position:absolute!important;inset:0!important;height:auto!important}
+.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover!important}
+.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .opus-card__title{flex:0 0 auto}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card--only-text .opus-card__icons{margin-top:auto}
 `;
@@ -2773,10 +2781,24 @@
     if (titleAnchor) return { el: titleAnchor, base: 2, lineHeight: TITLE_LINE_HEIGHT };
     return null;
   }
-  function restoreCloneImage(item) {
+  function imageSrcCandidates(img, sourceItem) {
+    const sourceImg = sourceItem ? sourceItem.querySelector(".bili-cover-card img") : null;
+    return [
+      img.getAttribute("src"),
+      img.currentSrc,
+      img.getAttribute("data-src"),
+      img.getAttribute("data-original"),
+      sourceImg && sourceImg.currentSrc,
+      sourceImg && sourceImg.getAttribute("src"),
+      sourceImg && sourceImg.getAttribute("data-src"),
+      sourceImg && sourceImg.getAttribute("data-original")
+    ].filter((value) => typeof value === "string" && value && !value.startsWith("data:"));
+  }
+  function restoreCloneImage(item, sourceItem) {
     const img = item.querySelector(".bili-cover-card img");
     if (!img) return;
-    const src = img.getAttribute("src") || "";
+    const src = imageSrcCandidates(img, sourceItem)[0] || "";
+    if (!src) return;
     if (!item.dataset.btNativeRatio) {
       const cover = item.querySelector(".bili-cover-card");
       let nativeRatio = cover && cover.style.getPropertyValue("--bili-cover-card-ratio") || "";
@@ -2786,8 +2808,24 @@
       }
       if (nativeRatio) item.dataset.btNativeRatio = nativeRatio;
     }
-    if (src.includes("@")) {
-      img.setAttribute("src", `${src.split("@")[0]}@640w.webp`);
+    const full = src.includes("@") ? `${src.split("@")[0]}@640w.webp` : src;
+    img.removeAttribute("srcset");
+    img.removeAttribute("sizes");
+    img.setAttribute("loading", "eager");
+    img.setAttribute("decoding", "async");
+    if (img.getAttribute("src") !== full) img.setAttribute("src", full);
+    const sourceImg = sourceItem ? sourceItem.querySelector(".bili-cover-card img") : null;
+    const fallback = sourceImg ? sourceImg.currentSrc || sourceImg.getAttribute("src") || "" : "";
+    if (fallback && fallback !== full && !img.dataset.btFallback) {
+      img.dataset.btFallback = "1";
+      img.addEventListener(
+        "error",
+        () => {
+          if (sourceImg && sourceImg.currentSrc) img.src = sourceImg.currentSrc;
+          else img.src = fallback;
+        },
+        { once: true }
+      );
     }
   }
   function nativeRatioFor(item) {
@@ -2844,7 +2882,7 @@
         clone.removeAttribute("style");
         clone.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
         clone.style.width = `${info.columnWidth}px`;
-        restoreCloneImage(clone);
+        restoreCloneImage(clone, srcItem);
         grid.appendChild(clone);
         clones.push(clone);
       }
@@ -3297,7 +3335,7 @@
   }
 
   // src/scripts/bili-space-tools.js
-  var VERSION4 = "1.0.3";
+  var VERSION4 = "1.0.4";
   var SCOPE4 = "all";
   var GLOBAL_KEY3 = "__biliToolsAllLoaded__";
   var log5 = createLogger(SCOPE4);

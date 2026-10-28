@@ -7,7 +7,7 @@ import { createLogger } from '../shared/log.js';
 import { addStyle } from '../shared/style.js';
 import { toast } from '../shared/toast.js';
 
-const VERSION = '0.4.1';
+const VERSION = '0.4.3';
 const SCOPE = 'opus-row';
 const STYLE_ID = 'bili-tools-opus-row-style';
 const HIDE_CLASS = 'bt-opus-row-hidden';
@@ -36,13 +36,21 @@ const CSS = `
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card{overflow:hidden}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
-.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .opus-card{height:100%;display:flex;flex-direction:column;overflow:hidden}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card{flex:1 1 auto!important;min-height:0!important;height:auto!important;padding-top:0!important;overflow:hidden}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail{position:absolute!important;inset:0!important;height:auto!important}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover!important}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .opus-card__title{flex:0 0 auto}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text .opus-card__icons{margin-top:auto}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
 .${BT_ROOT_CLASS} > .bt-opus-item .bili-cover-card{overflow:hidden}
 .${BT_ROOT_CLASS} > .bt-opus-item .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
-.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover}
+.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .opus-card{height:100%;display:flex;flex-direction:column;overflow:hidden}
+.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .bili-cover-card{flex:1 1 auto!important;min-height:0!important;height:auto!important;padding-top:0!important;overflow:hidden}
+.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail{position:absolute!important;inset:0!important;height:auto!important}
+.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover!important}
+.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .opus-card__title{flex:0 0 auto}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card--only-text .opus-card__icons{margin-top:auto}
 `;
@@ -324,10 +332,25 @@ function clampElement(item) {
   return null;
 }
 
-function restoreCloneImage(item) {
+function imageSrcCandidates(img, sourceItem) {
+  const sourceImg = sourceItem ? sourceItem.querySelector('.bili-cover-card img') : null;
+  return [
+    img.getAttribute('src'),
+    img.currentSrc,
+    img.getAttribute('data-src'),
+    img.getAttribute('data-original'),
+    sourceImg && sourceImg.currentSrc,
+    sourceImg && sourceImg.getAttribute('src'),
+    sourceImg && sourceImg.getAttribute('data-src'),
+    sourceImg && sourceImg.getAttribute('data-original'),
+  ].filter((value) => typeof value === 'string' && value && !value.startsWith('data:'));
+}
+
+function restoreCloneImage(item, sourceItem) {
   const img = item.querySelector('.bili-cover-card img');
   if (!img) return;
-  const src = img.getAttribute('src') || '';
+  const src = imageSrcCandidates(img, sourceItem)[0] || '';
+  if (!src) return;
   if (!item.dataset.btNativeRatio) {
     const cover = item.querySelector('.bili-cover-card');
     let nativeRatio = (cover && cover.style.getPropertyValue('--bili-cover-card-ratio')) || '';
@@ -337,9 +360,26 @@ function restoreCloneImage(item) {
     }
     if (nativeRatio) item.dataset.btNativeRatio = nativeRatio;
   }
-  if (src.includes('@')) {
-    // 原生卡片用裁剪缩略图；换成保比例的 640w 图，完整显示封面
-    img.setAttribute('src', `${src.split('@')[0]}@640w.webp`);
+  // 原生卡片可能还是裁剪缩略图或懒加载占位；统一换成保比例 640w，并强制 eager。
+  const full = src.includes('@') ? `${src.split('@')[0]}@640w.webp` : src;
+  img.removeAttribute('srcset');
+  img.removeAttribute('sizes');
+  img.setAttribute('loading', 'eager');
+  img.setAttribute('decoding', 'async');
+  if (img.getAttribute('src') !== full) img.setAttribute('src', full);
+
+  const sourceImg = sourceItem ? sourceItem.querySelector('.bili-cover-card img') : null;
+  const fallback = sourceImg ? sourceImg.currentSrc || sourceImg.getAttribute('src') || '' : '';
+  if (fallback && fallback !== full && !img.dataset.btFallback) {
+    img.dataset.btFallback = '1';
+    img.addEventListener(
+      'error',
+      () => {
+        if (sourceImg && sourceImg.currentSrc) img.src = sourceImg.currentSrc;
+        else img.src = fallback;
+      },
+      { once: true },
+    );
   }
 }
 
@@ -405,7 +445,7 @@ function rebuild() {
       clone.removeAttribute('style');
       clone.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
       clone.style.width = `${info.columnWidth}px`;
-      restoreCloneImage(clone);
+      restoreCloneImage(clone, srcItem);
       grid.appendChild(clone);
       clones.push(clone);
     }
@@ -833,3 +873,4 @@ if (!__BILI_TOOLS_COMBINED__) {
     log.debug('统一行高脚本已注入，跳过重复初始化');
   }
 }
+

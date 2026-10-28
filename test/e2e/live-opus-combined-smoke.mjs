@@ -58,9 +58,16 @@ async function main() {
         const top = Math.round((rect.top + window.scrollY) * 100) / 100;
         if (!groups.has(top)) groups.set(top, []);
         const img = el.querySelector('.bili-cover-card img');
+        const card = el.querySelector('.opus-card');
+        const title = el.querySelector('.opus-card__title');
+        const cardRect = card?.getBoundingClientRect();
+        const titleRect = title?.getBoundingClientRect();
         groups.get(top).push({
           height: Math.round(rect.height * 100) / 100,
           fit: img ? getComputedStyle(img).objectFit : '',
+          nativeClip: el.classList.contains('bt-opus-row-native-clip'),
+          titleFits: !titleRect || !cardRect ? true : titleRect.bottom <= cardRect.bottom + 1,
+          imgLoaded: !img || (img.complete && img.naturalWidth > 0),
         });
       }
       return {
@@ -74,6 +81,9 @@ async function main() {
             top,
             heights: list.map((x) => x.height),
             fits: [...new Set(list.map((x) => x.fit))],
+            natives: list.map((x) => x.nativeClip),
+            titleFits: list.map((x) => x.titleFits),
+            imgLoaded: list.map((x) => x.imgLoaded),
           })),
       };
     });
@@ -107,7 +117,10 @@ async function main() {
       snapshot.rows.forEach((row, i) => {
         const stat = stats[i];
         assert.equal(new Set(row.heights.map((h) => Math.round(h))).size, 1, `${label}同一行应等高`);
+        assert.ok(row.titleFits.every(Boolean), `${label}裁剪时标题不应被卡片底部截断`);
+        assert.ok(row.imgLoaded.every(Boolean), `${label}网格图片应全部加载`);
         if (stat && stat.clipped) {
+          assert.ok(row.natives.some(Boolean), `${label}裁剪行应有 B 站默认裁剪卡片`);
           assert.ok(row.fits.every((fit) => fit === 'contain' || fit === 'cover'), `${label}裁剪行只允许 contain/cover`);
         } else {
           assert.ok(row.fits.every((fit) => fit === 'contain'), `${label}未裁剪行封面应完整显示`);
