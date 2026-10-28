@@ -132,6 +132,32 @@ async function clickNextNoScroll(page) {
   });
 }
 
+async function assertPagerCentered(page, label = '') {
+  const metrics = await page.evaluate(() => {
+    const pager = document.querySelector('.bt-opus-pager');
+    const grid = document.querySelector('.bt-opus-grid');
+    if (!pager || !grid) return null;
+    const pr = pager.getBoundingClientRect();
+    const gr = grid.getBoundingClientRect();
+    const children = Array.from(pager.children)
+      .map((el) => el.getBoundingClientRect())
+      .filter((r) => r.width > 0);
+    if (!children.length) return null;
+    const left = Math.min(...children.map((r) => r.left));
+    const right = Math.max(...children.map((r) => r.right));
+    return {
+      gridCenter: gr.left + gr.width / 2,
+      contentCenter: (left + right) / 2,
+      justify: getComputedStyle(pager).justifyContent,
+    };
+  });
+  assert.ok(metrics, `${label} 应能找到分页条和网格`);
+  assert.equal(metrics.justify, 'center', `${label} 分页条应使用居中布局`);
+  assert.ok(
+    Math.abs(metrics.contentCenter - metrics.gridCenter) <= 4,
+    `${label} 分页按钮应相对网格居中（${metrics.contentCenter} vs ${metrics.gridCenter}）`,
+  );
+}
 async function runVueTest(browser, base) {
   console.log('--- 图文 VM 模式（每页 20 条 + 原生预取）---');
   const { context, page, errors } = await openPage(browser, base);
@@ -142,6 +168,7 @@ async function runVueTest(browser, base) {
   assert.equal(st.loaded, 20, '初始正好 20 条');
   assert.equal(await itemCount(page), 20, '第 1 页应渲染 20 张卡片');
   assert.equal(await page.locator('.bt-opus-pager').count(), 1, '应插入一个分页条');
+  await assertPagerCentered(page, '第 1 页');
   const feedHidden = await page.evaluate(() => {
     const el = document.querySelector('.opus-feed');
     const cs = getComputedStyle(el);
@@ -603,6 +630,7 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
 
 
 

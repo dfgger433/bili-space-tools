@@ -4,7 +4,7 @@
 // @name         B站空间页增强（动态翻页/图文翻页/统一行高）
 // @name:zh-CN   B站空间页增强（动态翻页/图文翻页/统一行高）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      1.0.1
+// @version      1.0.2
 // @description  单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @description:zh-CN 单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @author       bili-space-tools
@@ -1802,7 +1802,7 @@
   }
 
   // src/scripts/opus-pagination.js
-  var VERSION2 = "0.4.0";
+  var VERSION2 = "0.4.1";
   var SCOPE2 = "opus";
   var STYLE_ID3 = "bili-tools-opus-style";
   var ACTIVE_CLASS2 = "bili-tools-opus-active";
@@ -1855,7 +1855,7 @@
 .bt-opus-title-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;line-break:anywhere}
 .bt-opus-text-clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;line-break:anywhere;white-space:pre-wrap}
 .bt-opus-item .opus-card{width:100%}
-.bt-opus-pager{margin:8px auto 24px}
+.bt-opus-pager{display:flex!important;align-items:center!important;justify-content:center!important;width:100%;margin:8px 0 24px}
 .bt-opus-pager .vui_pagenation--btn-side.vui_button--disabled,
 .bt-opus-pager .vui_pagenation--btn-more.vui_button--disabled{display:none}
 .bili-tools-opus-active .opus-footer{padding:24px 0 32px}
@@ -3294,7 +3294,7 @@
   }
 
   // src/scripts/bili-space-tools.js
-  var VERSION4 = "1.0.1";
+  var VERSION4 = "1.0.2";
   var SCOPE4 = "all";
   var GLOBAL_KEY3 = "__biliToolsAllLoaded__";
   var log5 = createLogger(SCOPE4);

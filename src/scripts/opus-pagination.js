@@ -24,7 +24,7 @@ import {
   findWaterfall,
 } from '../opus/adapter.js';
 
-const VERSION = '0.4.0';
+const VERSION = '0.4.1';
 const SCOPE = 'opus';
 const STYLE_ID = 'bili-tools-opus-style';
 const ACTIVE_CLASS = 'bili-tools-opus-active';
@@ -80,7 +80,7 @@ const CSS = `
 .bt-opus-title-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;line-break:anywhere}
 .bt-opus-text-clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;line-break:anywhere;white-space:pre-wrap}
 .bt-opus-item .opus-card{width:100%}
-.bt-opus-pager{margin:8px auto 24px}
+.bt-opus-pager{display:flex!important;align-items:center!important;justify-content:center!important;width:100%;margin:8px 0 24px}
 .bt-opus-pager .vui_pagenation--btn-side.vui_button--disabled,
 .bt-opus-pager .vui_pagenation--btn-more.vui_button--disabled{display:none}
 .bili-tools-opus-active .opus-footer{padding:24px 0 32px}
