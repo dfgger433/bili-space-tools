@@ -53,7 +53,7 @@ async function main() {
   const readLayout = () =>
     page.evaluate(() => {
       const groups = new Map();
-      const items = document.querySelectorAll('.masonry_grid_v2 .container > .item');
+      const items = document.querySelectorAll('.bt-opus-row-grid > .bt-opus-row-item');
       for (const el of items) {
         const rect = el.getBoundingClientRect();
         const top = Math.round((rect.top + window.scrollY) * 100) / 100;
@@ -64,9 +64,13 @@ async function main() {
           objectFit: img ? getComputedStyle(img).objectFit : '',
         });
       }
+      const feed = document.querySelector('.opus-feed');
       return {
         count: items.length,
         pager: document.querySelectorAll('.bt-opus-pager').length,
+        feedHidden: feed
+          ? getComputedStyle(feed).visibility === 'hidden' || getComputedStyle(feed).display === 'none'
+          : false,
         rows: Array.from(groups.entries())
           .sort((a, b) => a[0] - b[0])
           .map(([top, list]) => ({ top, heights: list.map((x) => x.height), fits: [...new Set(list.map((x) => x.objectFit))] })),
@@ -89,6 +93,8 @@ async function main() {
 
     let layout = await readLayout();
     assert.equal(layout.pager, 0, '03 不应创建分页条');
+    assert.equal(layout.feedHidden, true, '原生 feed 应隐藏（由 03 的克隆网格显示）');
+    assert.equal(layout.count, st.items, '克隆网格应包含所有已加载图文');
     for (const row of layout.rows) {
       assert.equal(new Set(row.heights.map((h) => Math.round(h))).size, 1, '同一行卡片应等高');
       assert.ok(row.fits.every((fit) => fit === 'contain'), '封面应完整显示（contain，不裁剪）');

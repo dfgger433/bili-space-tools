@@ -4,7 +4,7 @@
 // @name         B站图文统一行高（独立脚本）
 // @name:zh-CN   B站图文统一行高（独立脚本）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.2.1
+// @version      0.3.0
 // @description  依赖“B站图文翻页”脚本的网格，只统一每行卡片高度并展开被省略的文字；不包含分页/菜单/预取。
 // @description:zh-CN 依赖“B站图文翻页”脚本的网格，只统一每行卡片高度并展开被省略的文字；不包含分页/菜单/预取。
 // @author       bili-space-tools
@@ -113,21 +113,27 @@
   }
 
   // src/scripts/opus-uniform-row.js
-  var VERSION = "0.2.1";
+  var VERSION = "0.3.0";
   var SCOPE = "opus-row";
   var STYLE_ID = "bili-tools-opus-row-style";
-  var ROOT_CLASS = "bt-opus-uniform-root";
+  var HIDE_CLASS = "bt-opus-row-hidden";
+  var WRAP_CLASS = "bt-opus-row-wrap";
+  var GRID_CLASS = "bt-opus-row-grid";
+  var ITEM_CLASS = "bt-opus-row-item";
+  var READY_CLASS = "bt-opus-row-ready";
   var TITLE_LINE_HEIGHT = 16.8;
   var TEXT_LINE_HEIGHT = 20;
-  var COLUMN_GAP = DEFAULT_COLUMN_GUTTER;
-  var ROW_GAP = DEFAULT_ROW_GUTTER;
   var log = createLogger(SCOPE);
   var CSS = `
-.${ROOT_CLASS} > .bt-opus-item .opus-card,.${ROOT_CLASS} > .item .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
-.${ROOT_CLASS} > .bt-opus-item .bili-cover-card,.${ROOT_CLASS} > .item .bili-cover-card{overflow:hidden}
-.${ROOT_CLASS} > .bt-opus-item .bili-cover-card__thumbnail img,.${ROOT_CLASS} > .item .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
-.${ROOT_CLASS} > .bt-opus-item .opus-card--only-text,.${ROOT_CLASS} > .item .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
-.${ROOT_CLASS} > .bt-opus-item .opus-card--only-text .opus-card__icons,.${ROOT_CLASS} > .item .opus-card--only-text .opus-card__icons{margin-top:auto}
+.${HIDE_CLASS} .opus-feed{position:absolute!important;left:0;right:0;top:auto;height:0!important;overflow:hidden!important;visibility:hidden!important;pointer-events:none!important}
+.${WRAP_CLASS}{margin:0 auto;width:100%}
+.${GRID_CLASS}{position:relative;margin:0 auto}
+.${ITEM_CLASS}{position:absolute;left:0;top:0;max-width:100%}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card{overflow:hidden}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text .opus-card__icons{margin-top:auto}
 `;
   var state = {
     active: false,
@@ -140,61 +146,73 @@
     lastError: "",
     lastApplyAt: 0
   };
-  var target = null;
-  var observer = null;
-  var attrObserver = null;
-  var applyTimer = null;
+  var masonry = null;
+  var source = null;
+  var hideHost = null;
+  var wrap = null;
+  var grid = null;
+  var clones = [];
+  var cloneSignature = "";
+  var sourceObserver = null;
+  var rebuildTimer = null;
+  var layoutTimer = null;
+  var boundLoad = false;
+  var boundResize = false;
   var applying = false;
-  var ignoreStyleUntil = 0;
   function exposeDebug() {
     window.BILI_TOOLS = window.BILI_TOOLS || {};
     window.BILI_TOOLS.row = {
       version: VERSION,
       state,
-      apply: () => scheduleApply(0)
+      apply: () => scheduleRebuild(0)
     };
   }
-  function itemsOf(t) {
-    if (!t) return [];
-    if (t.mode === "bt") {
-      return Array.from(t.root.children).filter(
-        (el) => el.classList && el.classList.contains("bt-opus-item")
-      );
-    }
-    return Array.from(t.root.children).filter((el) => el.classList && el.classList.contains("item"));
+  function sourceItems() {
+    if (!source) return [];
+    const direct = Array.from(source.children).filter(
+      (el) => el.classList && el.classList.contains("item")
+    );
+    if (direct.length) return direct;
+    return Array.from(source.querySelectorAll(".item"));
   }
-  function findTarget() {
-    const btGrid = document.querySelector(".bt-opus-grid");
-    if (btGrid && itemsOf({ mode: "bt", root: btGrid }).length) {
-      return { mode: "bt", root: btGrid, grid: btGrid };
-    }
-    const masonry = document.querySelector(".masonry_grid_v2");
-    if (!masonry) return null;
-    let root = masonry.querySelector(".container");
-    if (!root || !itemsOf({ mode: "native", root }).length) {
-      const sample = masonry.querySelector(".item");
-      root = sample && sample.parentElement || root;
-    }
-    if (root && itemsOf({ mode: "native", root }).length) {
-      return { mode: "native", root, grid: masonry };
-    }
-    return null;
+  function sourceItemsOf(container) {
+    if (!container) return [];
+    const direct = Array.from(container.children).filter(
+      (el) => el.classList && el.classList.contains("item")
+    );
+    if (direct.length) return direct;
+    return Array.from(container.querySelectorAll(".item"));
   }
-  function resolveInfo(t, items) {
+  function findSource() {
+    const opus = window.BILI_TOOLS && window.BILI_TOOLS.opus;
+    if (opus && opus.state && opus.state.active) return null;
+    const found = document.querySelector(".masonry_grid_v2");
+    if (!found) return null;
+    let container = found.querySelector(".container");
+    if (!container || !sourceItemsOf(container).length) {
+      const sample = found.querySelector(".item");
+      container = sample && sample.parentElement || container;
+    }
+    if (!container || !sourceItemsOf(container).length) return null;
+    return { masonry: found, source: container };
+  }
+  function signatureOf(items) {
+    return items.map((el) => {
+      const link = el.querySelector(".opus-card__title, .bili-cover-card");
+      const href = link && link.getAttribute("href") || "";
+      const title = ((el.querySelector(".opus-card__title") || {}).textContent || "").trim().slice(0, 40);
+      const img = el.querySelector(".bili-cover-card img");
+      const src = (img && img.getAttribute("src") || "").split("@")[0];
+      return `${href}|${title}|${src}`;
+    }).join("~");
+  }
+  function resolveInfo(items) {
     const first = items[0];
-    const firstWidth = first ? first.getBoundingClientRect().width : 0;
-    if (t.mode === "bt") {
-      const opusState = window.BILI_TOOLS && window.BILI_TOOLS.opus && window.BILI_TOOLS.opus.state;
-      if (opusState && opusState.columns > 0 && opusState.columnWidth > 0) {
-        return { columns: opusState.columns, columnWidth: opusState.columnWidth };
-      }
-    }
-    if (!first || firstWidth <= 0) return null;
-    let columns = 0;
-    const containerWidth = parseFloat(t.grid.style.getPropertyValue("--container-width")) || 0;
-    if (containerWidth > 0) {
-      columns = Math.round((containerWidth + COLUMN_GAP) / (firstWidth + COLUMN_GAP));
-    }
+    if (!first) return null;
+    const firstWidth = parseFloat(first.style.width) || first.getBoundingClientRect().width || 0;
+    if (!(firstWidth > 0)) return null;
+    const containerWidth = parseFloat(masonry && masonry.style.getPropertyValue("--container-width")) || 0;
+    let columns = containerWidth > 0 ? Math.round((containerWidth + DEFAULT_COLUMN_GUTTER) / (firstWidth + DEFAULT_COLUMN_GUTTER)) : 0;
     if (!(columns > 0)) {
       const top = Math.round(first.getBoundingClientRect().top);
       columns = items.filter(
@@ -212,13 +230,15 @@
     if (titleAnchor) return { el: titleAnchor, base: 2, lineHeight: TITLE_LINE_HEIGHT };
     return null;
   }
-  function resetItem(item) {
-    item.style.removeProperty("height");
-    item.style.removeProperty("transform");
-    const clamp = clampElement(item);
-    if (clamp) clamp.el.style.setProperty("-webkit-line-clamp", String(clamp.base));
+  function restoreCloneImage(item) {
+    const img = item.querySelector(".bili-cover-card img");
+    if (!img) return;
+    const src = img.getAttribute("src") || "";
+    if (src.includes("@")) {
+      img.setAttribute("src", `${src.split("@")[0]}@640w.webp`);
+    }
   }
-  function setCoverRatio(item) {
+  function setCloneCoverRatio(item) {
     const cover = item.querySelector(".bili-cover-card");
     const img = cover && cover.querySelector("img");
     if (!cover || !img || !img.naturalWidth || !img.naturalHeight) return;
@@ -227,126 +247,159 @@
       `${img.naturalHeight / img.naturalWidth * 100}%`
     );
   }
-  function restoreNativeCover(item) {
-    if (!target || target.mode !== "native") return;
-    const img = item.querySelector(".bili-cover-card img");
-    if (!img) return;
-    const src = img.getAttribute("src") || "";
-    if (src.includes("@") && img.getAttribute("data-bt-full") !== "1") {
-      img.setAttribute("data-bt-full", "1");
-      img.setAttribute("src", `${src.replace(/@[^/]*$/, "")}@640w.webp`);
-    }
+  function resetClone(item, columnWidth) {
+    item.style.removeProperty("height");
+    item.style.removeProperty("transform");
+    item.style.width = `${columnWidth}px`;
+    const clamp = clampElement(item);
+    if (clamp) clamp.el.style.setProperty("-webkit-line-clamp", String(clamp.base));
+    restoreCloneImage(item);
+    setCloneCoverRatio(item);
   }
-  function apply() {
-    const t = target;
-    if (!t || !t.root.isConnected) {
-      attachTarget(null);
+  function rebuild() {
+    if (!source || !source.isConnected || !grid) {
+      attachSource(null);
       return;
     }
-    const items = itemsOf(t);
+    const items = sourceItems();
     if (!items.length) return;
-    const info = resolveInfo(t, items);
+    const info = resolveInfo(items);
+    if (!info) return;
+    const signature = signatureOf(items);
+    if (signature !== cloneSignature || clones.length !== items.length) {
+      cloneSignature = signature;
+      clones = [];
+      grid.replaceChildren();
+      for (const srcItem of items) {
+        const clone = srcItem.cloneNode(true);
+        clone.classList.remove("item");
+        clone.classList.add(ITEM_CLASS);
+        clone.removeAttribute("style");
+        clone.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+        clone.style.width = `${info.columnWidth}px`;
+        restoreCloneImage(clone);
+        grid.appendChild(clone);
+        clones.push(clone);
+      }
+    }
+    layout();
+  }
+  function layout() {
+    if (!grid || !clones.length) return;
+    const items = sourceItems();
+    const info = resolveInfo(items);
     if (!info) return;
     if (applying) return;
     applying = true;
     try {
-      t.root.classList.remove(ROOT_CLASS);
-      t.root.style.removeProperty("height");
-      if (t.grid) t.grid.style.removeProperty("height");
-      for (const item of items) resetItem(item);
-      for (const item of items) {
-        restoreNativeCover(item);
-        setCoverRatio(item);
-      }
-      void t.root.offsetHeight;
-      const naturalHeights = items.map((item) => {
-        const card = item.querySelector(".opus-card");
-        return Math.round(card ? card.offsetHeight : item.getBoundingClientRect().height);
+      grid.classList.remove(READY_CLASS);
+      for (const clone of clones) resetClone(clone, info.columnWidth);
+      void grid.offsetHeight;
+      const naturalHeights = clones.map((clone) => {
+        const card = clone.querySelector(".opus-card");
+        return Math.round(card ? card.offsetHeight : clone.getBoundingClientRect().height);
       });
-      const layout = layoutRows(
+      const result = layoutRows(
         naturalHeights.map((height) => ({ height })),
         {
           columnWidth: info.columnWidth,
           columns: info.columns,
-          rowGutter: ROW_GAP,
-          columnGutter: COLUMN_GAP
+          rowGutter: DEFAULT_ROW_GUTTER,
+          columnGutter: DEFAULT_COLUMN_GUTTER
         }
       );
-      t.root.classList.add(ROOT_CLASS);
-      if (t.mode === "bt") {
-        t.root.style.width = `${layout.width}px`;
-        t.root.style.height = `${layout.height}px`;
-      } else {
-        t.root.style.height = `${layout.height}px`;
-        if (t.grid) {
-          t.grid.style.setProperty("--container-height", `${layout.height}px`);
-          t.grid.style.height = `${layout.height}px`;
-        }
-      }
-      items.forEach((item, index) => {
-        const pos = layout.positions[index];
-        item.style.width = `${info.columnWidth}px`;
-        item.style.height = `${pos.height}px`;
-        item.style.transform = `translate(${pos.left}px, ${pos.top}px)`;
+      grid.classList.add(READY_CLASS);
+      grid.style.width = `${result.width}px`;
+      grid.style.height = `${result.height}px`;
+      clones.forEach((clone, index) => {
+        const pos = result.positions[index];
+        clone.style.height = `${pos.height}px`;
+        clone.style.transform = `translate(${pos.left}px, ${pos.top}px)`;
         const extra = Math.max(0, pos.height - naturalHeights[index]);
-        const clamp = clampElement(item);
+        const clamp = clampElement(clone);
         if (clamp && extra > 0) {
           const lines = clamp.base + Math.min(20, Math.floor(extra / clamp.lineHeight));
           clamp.el.style.setProperty("-webkit-line-clamp", String(lines));
         }
       });
       state.active = true;
-      state.mode = t.mode;
-      state.items = items.length;
+      state.mode = "native";
+      state.items = clones.length;
       state.columns = info.columns;
-      state.rows = layout.rowHeights.length;
-      state.rowHeights = layout.rowHeights;
+      state.rows = result.rowHeights.length;
+      state.rowHeights = result.rowHeights;
       state.lastError = "";
       state.lastApplyAt = Date.now();
-      ignoreStyleUntil = Date.now() + 220;
     } finally {
       applying = false;
     }
   }
-  function scheduleApply(delay = 60) {
-    if (!target) return;
-    if (applyTimer) clearTimeout(applyTimer);
-    applyTimer = setTimeout(() => {
-      applyTimer = null;
+  function scheduleRebuild(delay = 120) {
+    if (!source) return;
+    if (rebuildTimer) clearTimeout(rebuildTimer);
+    rebuildTimer = setTimeout(() => {
+      rebuildTimer = null;
       try {
-        apply();
+        rebuild();
       } catch (err) {
         state.lastError = String(err);
         log.warn("统一行高失败", err);
       }
     }, delay);
   }
-  function onImageLoad() {
-    scheduleApply(80);
+  function scheduleLayout(delay = 80) {
+    if (!source) return;
+    if (layoutTimer) clearTimeout(layoutTimer);
+    layoutTimer = setTimeout(() => {
+      layoutTimer = null;
+      try {
+        layout();
+      } catch (err) {
+        state.lastError = String(err);
+        log.warn("统一行高排版失败", err);
+      }
+    }, delay);
+  }
+  function onGridLoad() {
+    scheduleLayout(80);
   }
   function onResize() {
-    scheduleApply(120);
+    scheduleRebuild(150);
   }
-  function onStylesChanged() {
-    if (applying) return;
-    if (Date.now() < ignoreStyleUntil) return;
-    scheduleApply(80);
-  }
-  function detachTarget() {
-    if (observer) {
-      observer.disconnect();
-      observer = null;
+  function detachSource() {
+    if (sourceObserver) {
+      sourceObserver.disconnect();
+      sourceObserver = null;
     }
-    if (attrObserver) {
-      attrObserver.disconnect();
-      attrObserver = null;
+    if (rebuildTimer) {
+      clearTimeout(rebuildTimer);
+      rebuildTimer = null;
     }
-    if (target) {
-      target.root.classList.remove(ROOT_CLASS);
-      target.root.removeEventListener("load", onImageLoad, true);
+    if (layoutTimer) {
+      clearTimeout(layoutTimer);
+      layoutTimer = null;
     }
-    window.removeEventListener("resize", onResize);
-    target = null;
+    if (grid && boundLoad) {
+      grid.removeEventListener("load", onGridLoad, true);
+      boundLoad = false;
+    }
+    if (boundResize) {
+      window.removeEventListener("resize", onResize);
+      boundResize = false;
+    }
+    if (hideHost) {
+      hideHost.classList.remove(HIDE_CLASS);
+      hideHost = null;
+    }
+    if (wrap) {
+      wrap.remove();
+      wrap = null;
+    }
+    grid = null;
+    clones = [];
+    cloneSignature = "";
+    source = null;
+    masonry = null;
     state.active = false;
     state.mode = null;
     state.items = 0;
@@ -354,35 +407,52 @@
     state.rows = 0;
     state.rowHeights = [];
   }
-  function attachTarget(next) {
-    if (target && next && target.mode === next.mode && target.root === next.root) return;
-    if (!target && !next) return;
-    detachTarget();
-    target = next;
+  function attachSource(next) {
+    if (source && next && source === next.source && wrap && wrap.isConnected) return;
+    if (!source && !next) return;
+    detachSource();
     if (!next) return;
-    next.root.classList.add(ROOT_CLASS);
-    observer = new MutationObserver(() => scheduleApply(30));
-    observer.observe(next.root, { childList: true, subtree: true });
-    if (next.mode === "native") {
-      attrObserver = new MutationObserver(onStylesChanged);
-      attrObserver.observe(next.root, { attributes: true, attributeFilter: ["style"], subtree: true });
-    }
-    next.root.addEventListener("load", onImageLoad, true);
+    source = next.source;
+    masonry = next.masonry;
+    hideHost = masonry.closest(".opus") || masonry.closest(".opus-body") || masonry.parentElement || document.body;
+    hideHost.classList.add(HIDE_CLASS);
+    wrap = document.createElement("div");
+    wrap.className = WRAP_CLASS;
+    grid = document.createElement("div");
+    grid.className = GRID_CLASS;
+    wrap.appendChild(grid);
+    const feed = masonry.closest(".opus-feed");
+    const parent = feed && feed.parentElement || masonry.parentElement;
+    if (feed && feed.nextSibling) parent.insertBefore(wrap, feed.nextSibling);
+    else parent.appendChild(wrap);
+    sourceObserver = new MutationObserver(() => scheduleRebuild(120));
+    sourceObserver.observe(source, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+    grid.addEventListener("load", onGridLoad, true);
+    boundLoad = true;
     window.addEventListener("resize", onResize, { passive: true });
+    boundResize = true;
     state.active = true;
-    log.info(`已连接（${next.mode}），开始统一行高`);
-    scheduleApply(0);
+    log.info("已接管原生图文网格，开始统一行高");
+    scheduleRebuild(0);
   }
   function start() {
     addStyle(STYLE_ID, CSS);
     exposeDebug();
     log.info(`统一行高脚本 v${VERSION} 启动`);
     setInterval(() => {
-      const next = findTarget();
-      attachTarget(next);
-      if (target && Date.now() - state.lastApplyAt > 3e3) scheduleApply(0);
+      const next = findSource();
+      attachSource(next);
+      if (source && source.isConnected) {
+        const items = sourceItems();
+        if (signatureOf(items) !== cloneSignature) scheduleRebuild(0);
+        else if (Date.now() - state.lastApplyAt > 3e3) scheduleLayout(0);
+      }
     }, 500);
-    attachTarget(findTarget());
+    attachSource(findSource());
   }
   var GLOBAL_KEY = "__biliToolsOpusRowLoaded__";
   var previous = window[GLOBAL_KEY];
