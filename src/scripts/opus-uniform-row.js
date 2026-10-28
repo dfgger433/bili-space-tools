@@ -8,7 +8,7 @@ import { layoutRows } from '../opus/layout.js';
 import { createLogger } from '../shared/log.js';
 import { addStyle } from '../shared/style.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 const SCOPE = 'opus-row';
 const STYLE_ID = 'bili-tools-opus-row-style';
 const ROOT_CLASS = 'bt-opus-uniform-root';
@@ -35,6 +35,8 @@ const state = {
   columns: 0,
   rows: 0,
   rowHeights: [],
+  lastError: '',
+  lastApplyAt: 0,
 };
 
 let target = null;
@@ -69,9 +71,15 @@ function findTarget() {
     return { mode: 'bt', root: btGrid, grid: btGrid };
   }
   const masonry = document.querySelector('.masonry_grid_v2');
-  const container = masonry && masonry.querySelector('.container');
-  if (masonry && container && itemsOf({ mode: 'native', root: container }).length) {
-    return { mode: 'native', root: container, grid: masonry };
+  if (!masonry) return null;
+  let root = masonry.querySelector('.container');
+  if (!root || !itemsOf({ mode: 'native', root }).length) {
+    // 兼容不同版本/插件的 WaterfallGrid 包装：以 .item 的父元素作为容器
+    const sample = masonry.querySelector('.item');
+    root = (sample && sample.parentElement) || root;
+  }
+  if (root && itemsOf({ mode: 'native', root }).length) {
+    return { mode: 'native', root, grid: masonry };
   }
   return null;
 }
@@ -211,6 +219,8 @@ function apply() {
     state.columns = info.columns;
     state.rows = layout.rowHeights.length;
     state.rowHeights = layout.rowHeights;
+    state.lastError = '';
+    state.lastApplyAt = Date.now();
     ignoreStyleUntil = Date.now() + 220;
   } finally {
     applying = false;
@@ -225,6 +235,7 @@ function scheduleApply(delay = 60) {
     try {
       apply();
     } catch (err) {
+      state.lastError = String(err);
       log.warn('统一行高失败', err);
     }
   }, delay);
@@ -290,17 +301,24 @@ function attachTarget(next) {
 function start() {
   addStyle(STYLE_ID, CSS);
   exposeDebug();
+  log.info(`统一行高脚本 v${VERSION} 启动`);
   setInterval(() => {
     const next = findTarget();
     attachTarget(next);
+    // 看门狗：原生组件重排/异常后，最多 3 秒内重新应用一次
+    if (target && Date.now() - state.lastApplyAt > 3000) scheduleApply(0);
   }, 500);
   attachTarget(findTarget());
 }
 
 const GLOBAL_KEY = '__biliToolsOpusRowLoaded__';
-if (!window[GLOBAL_KEY]) {
+const previous = window[GLOBAL_KEY];
+// 版本不同的旧实例（例如 v0.1.0）可能先把占位键写上；这里允许新版本继续运行
+if (!previous || previous.version !== VERSION) {
   window[GLOBAL_KEY] = { version: VERSION, startedAt: Date.now() };
   start();
 } else {
   log.debug('统一行高脚本已注入，跳过重复初始化');
 }
+
+

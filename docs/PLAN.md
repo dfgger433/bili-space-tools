@@ -64,7 +64,7 @@
 - 复用 `src/shared/`：`pager.js`、`dom.js`、`log.js`、`style.js`、`toast.js`（均已通过阶段 1 测试）。
 - 测试：`npm run test:e2e:opus`（Vue 通道、网络通道、预取、切 tab、resize、重复注入）+ 单元测试（布局/高度/URL/分页）。
 
-## 3. 阶段 3：独立统一行高脚本（v0.2.0）
+## 3. 阶段 3：独立统一行高脚本（v0.2.1）
 
 - **独立脚本** `03-图文统一行高.user.js`：**不依赖 02**，直接处理原生 `.masonry_grid_v2 .container > .item` 的所有已加载图文；
   不包含分页/菜单/预取/接口拦截。装了 02 时也兼容 02 的 `.bt-opus-grid`（可选）。
@@ -90,6 +90,7 @@
 - 每个交付脚本都带完整 UserScript 头；安装新阶段时禁用上一阶段即可。
 - 调试：`window.BILI_TOOLS` 暴露状态与自检；`localStorage["biliTools:debug"]="1"` 打日志。
 - 测试：`node --test` 单元测试 + `playwright-core`（本机 Chrome）假页 e2e + 截图；真实登录场景由用户实测。
+
 
 
 

@@ -4,7 +4,7 @@
 // @name         B站图文统一行高（独立脚本）
 // @name:zh-CN   B站图文统一行高（独立脚本）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.2.0
+// @version      0.2.1
 // @description  依赖“B站图文翻页”脚本的网格，只统一每行卡片高度并展开被省略的文字；不包含分页/菜单/预取。
 // @description:zh-CN 依赖“B站图文翻页”脚本的网格，只统一每行卡片高度并展开被省略的文字；不包含分页/菜单/预取。
 // @author       bili-space-tools
@@ -113,7 +113,7 @@
   }
 
   // src/scripts/opus-uniform-row.js
-  var VERSION = "0.2.0";
+  var VERSION = "0.2.1";
   var SCOPE = "opus-row";
   var STYLE_ID = "bili-tools-opus-row-style";
   var ROOT_CLASS = "bt-opus-uniform-root";
@@ -136,7 +136,9 @@
     items: 0,
     columns: 0,
     rows: 0,
-    rowHeights: []
+    rowHeights: [],
+    lastError: "",
+    lastApplyAt: 0
   };
   var target = null;
   var observer = null;
@@ -167,9 +169,14 @@
       return { mode: "bt", root: btGrid, grid: btGrid };
     }
     const masonry = document.querySelector(".masonry_grid_v2");
-    const container = masonry && masonry.querySelector(".container");
-    if (masonry && container && itemsOf({ mode: "native", root: container }).length) {
-      return { mode: "native", root: container, grid: masonry };
+    if (!masonry) return null;
+    let root = masonry.querySelector(".container");
+    if (!root || !itemsOf({ mode: "native", root }).length) {
+      const sample = masonry.querySelector(".item");
+      root = sample && sample.parentElement || root;
+    }
+    if (root && itemsOf({ mode: "native", root }).length) {
+      return { mode: "native", root, grid: masonry };
     }
     return null;
   }
@@ -294,6 +301,8 @@
       state.columns = info.columns;
       state.rows = layout.rowHeights.length;
       state.rowHeights = layout.rowHeights;
+      state.lastError = "";
+      state.lastApplyAt = Date.now();
       ignoreStyleUntil = Date.now() + 220;
     } finally {
       applying = false;
@@ -307,6 +316,7 @@
       try {
         apply();
       } catch (err) {
+        state.lastError = String(err);
         log.warn("统一行高失败", err);
       }
     }, delay);
@@ -366,14 +376,17 @@
   function start() {
     addStyle(STYLE_ID, CSS);
     exposeDebug();
+    log.info(`统一行高脚本 v${VERSION} 启动`);
     setInterval(() => {
       const next = findTarget();
       attachTarget(next);
+      if (target && Date.now() - state.lastApplyAt > 3e3) scheduleApply(0);
     }, 500);
     attachTarget(findTarget());
   }
   var GLOBAL_KEY = "__biliToolsOpusRowLoaded__";
-  if (!window[GLOBAL_KEY]) {
+  var previous = window[GLOBAL_KEY];
+  if (!previous || previous.version !== VERSION) {
     window[GLOBAL_KEY] = { version: VERSION, startedAt: Date.now() };
     start();
   } else {
