@@ -62,7 +62,7 @@ export const scripts = [
       name: 'B站图文统一行高（独立脚本）',
       nameZh: 'B站图文统一行高（独立脚本）',
       namespace: 'https://github.com/bili-space-tools/bili-space-tools',
-      version: '0.4.3',
+      version: '0.4.4',
       description: '统一所有已加载图文行高：每行自动计算平均高度，按可调的“超出比例阈值”（默认 27%，油猴菜单可设，0=停用）裁剪高于平均值的内容；不包含分页/预取。',
       descriptionZh: '统一所有已加载图文行高：每行自动计算平均高度，按可调的“超出比例阈值”（默认 27%，油猴菜单可设，0=停用）裁剪高于平均值的内容；不包含分页/预取。',
       author: 'bili-space-tools',
@@ -84,6 +84,7 @@ export const scripts = [
     },
   },
 ];
+
 
 
 

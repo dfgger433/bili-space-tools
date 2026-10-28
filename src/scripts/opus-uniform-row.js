@@ -7,7 +7,7 @@ import { createLogger } from '../shared/log.js';
 import { addStyle } from '../shared/style.js';
 import { toast } from '../shared/toast.js';
 
-const VERSION = '0.4.3';
+const VERSION = '0.4.4';
 const SCOPE = 'opus-row';
 const STYLE_ID = 'bili-tools-opus-row-style';
 const HIDE_CLASS = 'bt-opus-row-hidden';
@@ -37,6 +37,7 @@ const CSS = `
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail{position:absolute!important;inset:0!important;height:auto!important}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{width:100%!important;height:100%!important;object-fit:cover!important}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .opus-card__title{flex:0 0 auto}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .opus-card > .opus-card--with-cover{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;height:100%}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text .opus-card__icons{margin-top:auto}
 `;
@@ -601,6 +602,7 @@ if (!previous || previous.version !== VERSION) {
 } else {
   log.debug('统一行高脚本已注入，跳过重复初始化');
 }
+
 
 
 
