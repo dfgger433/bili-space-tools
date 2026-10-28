@@ -1,5 +1,7 @@
 # Greasy Fork 发布资料
 
+已发布：https://greasyfork.org/zh-CN/scripts/602581-b%E7%AB%99%E7%A9%BA%E9%97%B4%E9%A1%B5%E5%A2%9E%E5%BC%BA-%E5%8A%A8%E6%80%81%E7%BF%BB%E9%A1%B5-%E5%9B%BE%E6%96%87%E7%BF%BB%E9%A1%B5-%E7%BB%9F%E4%B8%80%E8%A1%8C%E9%AB%98
+
 ## 发布前检查
 
 - 脚本代码：`dist/B站空间页增强.user.js`（v1.0.3）
@@ -67,3 +69,4 @@ MIT
 5. 提交。发布后从 Greasy Fork 安装一次，确认油猴菜单与页面效果。
 6. 以后更新：修改 `scripts.config.mjs` 的 `version`，重新 `npm run build`，
    在 Greasy Fork 编辑脚本、粘贴新代码（版本号必须递增），再推送 GitHub。
+

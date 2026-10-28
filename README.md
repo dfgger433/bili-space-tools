@@ -1,5 +1,8 @@
 # B站空间页增强（单脚本 userscript）
 
+[![Greasy Fork](https://img.shields.io/badge/Greasy%20Fork-安装脚本-B4522B)](https://greasyfork.org/zh-CN/scripts/602581-b%E7%AB%99%E7%A9%BA%E9%97%B4%E9%A1%B5%E5%A2%9E%E5%BC%BA-%E5%8A%A8%E6%80%81%E7%BF%BB%E9%A1%B5-%E5%9B%BE%E6%96%87%E7%BF%BB%E9%A1%B5-%E7%BB%9F%E4%B8%80%E8%A1%8C%E9%AB%98)
+[![GitHub](https://img.shields.io/badge/GitHub-dfgger433%2Fbili--space--tools-181717?logo=github)](https://github.com/dfgger433/bili-space-tools)
+
 主分支只交付**一个** Tampermonkey 脚本，内含三个可独立开关的模块：
 
 | 模块 | 页面 | 功能 | 默认 | 开关 |
@@ -14,6 +17,14 @@
 > 关掉统一行高就只做分页。设置保存在油猴存储里，刷新/换页后保持。
 
 ## 安装
+
+### Greasy Fork（推荐）
+
+[**点这里从 Greasy Fork 安装**](https://greasyfork.org/zh-CN/scripts/602581-b%E7%AB%99%E7%A9%BA%E9%97%B4%E9%A1%B5%E5%A2%9E%E5%BC%BA-%E5%8A%A8%E6%80%81%E7%BF%BB%E9%A1%B5-%E5%9B%BE%E6%96%87%E7%BF%BB%E9%A1%B5-%E7%BB%9F%E4%B8%80%E8%A1%8C%E9%AB%98)
+
+> 需要先安装 Tampermonkey。Greasy Fork 会负责后续版本更新，安装后不需要再手动导入。
+
+### 手动安装（备选）
 
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/)。
 2. 油猴管理面板 → **实用工具** → **导入文件**，选择 `dist/B站空间页增强.user.js`。
