@@ -15,6 +15,9 @@ npm run test:e2e
 # 分页控件与原生参考的尺寸/字体对比（截图输出到 test/screenshots/）
 npm run test:visual
 
+# 真实页面 DOM 快照测试（加载 参考文件/ 里保存的真实动态页，禁用其脚本，伪造列表实例）
+npm run test:e2e:real
+
 # 构建 userscript
 npm run build
 ```
@@ -22,6 +25,7 @@ npm run build
 - e2e 使用 `playwright-core` + 本机浏览器（默认探测 Chrome/Edge，可用环境变量 `BILI_TEST_BROWSER` 覆盖）。
 - 假页把 `/440900637/dynamic` 重写到 `test/fixtures/dyn-page.html`，从而让脚本的 `@match` 与路由判断生效；CSS 直接加载 `参考文件/` 里的 B 站原生样式表，保证分页条外观就是原生外观。
 - 已覆盖：VM 模式、整列表重绘、纯 DOM 回退、上一页/下一页、跳页输入、末页禁用、重复注入、tab 重置、少量数据（总量 5 条 / 12 条）。
+- 真实快照测试会加载 `参考文件/` 中保存的 B 站动态页（保留真实 SSR DOM 与 CSS、禁用其页面脚本），伪造列表实例后注入脚本：确认真实 DOM 下只显示 10 条、分页条正常插入（截图 `test/screenshots/dyn-real-snapshot.png`）。
 
 ## 2. 真实页面手动验收（用户执行）
 

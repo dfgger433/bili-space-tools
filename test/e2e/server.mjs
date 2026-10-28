@@ -26,9 +26,19 @@ const MIME = {
 };
 
 export async function startServer({ port = 0, root = ROOT } = {}) {
+  const SNAPSHOT_DYN = '参考文件/arooka_阿若卡个人动态-arooka_阿若卡动态记录-哔哩哔哩视频.htm';
   const server = http.createServer(async (req, res) => {
     try {
-      const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+      const url = new URL(req.url, 'http://localhost');
+      const pathname = decodeURIComponent(url.pathname);
+      // 真实 DOM 快照：伪装成动态路由，并补 <base> 让快照里的相对资源路径正确解析
+      if (/^\/\d+\/dynamic$/.test(pathname) && url.searchParams.get('snapshot') === '1') {
+        const html = await readFile(path.join(root, SNAPSHOT_DYN), 'utf8');
+        const patched = html.replace(/<head[^>]*>/i, (m) => `${m}<base href="/参考文件/">`);
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(patched);
+        return;
+      }
       let filePath = path.join(root, pathname);
       // 让假页伪装成 B 站真实路由，便于 userscript 的 @match/路由判断生效
       if (/^\/\d+\/dynamic(?:\/|$)/.test(pathname)) {
