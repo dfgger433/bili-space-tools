@@ -120,3 +120,30 @@ window.BILI_TOOLS.row.setClipPercent(27)
 - `0.4.0`（图文翻页）：单脚本、`unsafeWindow` 页面访问、fail-safe。
 - `0.2.1`（动态翻页）：健壮性修复。
 - 更早的分阶段记录见各维护分支。
+
+## 目录结构
+
+```
+src/
+  scripts/bili-space-tools.js   # 单脚本入口：组合三个模块 + 菜单开关
+  scripts/dyn-pagination.js     # 动态翻页模块
+  scripts/opus-pagination.js    # 图文翻页模块
+  scripts/opus-uniform-row.js   # 统一行高模块
+  opus/                         # 图文数据/布局/卡片/适配
+  shared/                       # 通用 DOM/分页/样式/日志/设置
+dist/B站空间页增强.user.js       # 构建产物（安装这个）
+test/                           # 单元测试、e2e、假页、演示页
+docs/                           # 计划/任务/测试/研究文档
+```
+
+## 构建
+
+```powershell
+npm install
+npm run build   # 生成 dist/B站空间页增强.user.js
+```
+
+## License
+
+[MIT](LICENSE)
+
