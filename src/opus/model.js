@@ -22,16 +22,23 @@ export function normalizeUrl(url) {
 export function coverThumbUrl(url, width = COVER_THUMB_WIDTH) {
   const value = normalizeUrl(url);
   if (!value || !/^https?:\/\//i.test(value)) return value;
-  if (value.includes('@')) return value;
   const w = Math.max(160, Math.round(Number(width) || COVER_THUMB_WIDTH));
-  return `${value}@${w}w.webp`;
+  // 原生返回的封面可能是 @454w_596_fU1r.avif 这类 AVIF 变体；Firefox 旧版本无法解码，
+  // 统一换成 B 站图床的 webp 变体，兼容性最好。
+  const base = value.split('@')[0];
+  return `${base}@${w}w.webp`;
 }
 
 /** 根据“图片压缩”开关选择封面地址 */
 export function coverDisplaySrc(cover, compress = true) {
   if (!cover) return '';
-  if (compress) return cover.thumbSrc || coverThumbUrl(cover.src);
-  return cover.src || '';
+  if (compress) {
+    const thumb = cover.thumbSrc ? coverThumbUrl(cover.thumbSrc) : '';
+    return thumb || coverThumbUrl(cover.src);
+  }
+  // 关闭压缩时用不带 @ 变体的原图（jpg/png），避免 AVIF 兼容问题。
+  const src = cover.src || '';
+  return src.includes('@') ? src.split('@')[0] : src;
 }
 
 export function normalizeHref(url) {

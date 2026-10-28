@@ -24,7 +24,7 @@ import {
   findWaterfall,
 } from '../opus/adapter.js';
 
-const VERSION = '0.4.1';
+const VERSION = '0.4.2';
 const SCOPE = 'opus';
 const STYLE_ID = 'bili-tools-opus-style';
 const ACTIVE_CLASS = 'bili-tools-opus-active';
@@ -792,4 +792,5 @@ if (!__BILI_TOOLS_COMBINED__) {
     log.debug('opus 脚本已注入，跳过重复初始化');
   }
 }
+
 

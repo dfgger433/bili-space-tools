@@ -7,7 +7,7 @@ import { createLogger } from '../shared/log.js';
 import { toast } from '../shared/toast.js';
 import { loadModuleSettings, saveModuleSettings } from '../shared/module-settings.js';
 
-const VERSION = '1.0.4';
+const VERSION = '1.0.5';
 const SCOPE = 'all';
 const GLOBAL_KEY = '__biliToolsAllLoaded__';
 
@@ -180,6 +180,7 @@ if (!previous || previous.version !== VERSION) {
 }
 
 export { start, stop, VERSION, settings, apply, toggle };
+
 
 
 

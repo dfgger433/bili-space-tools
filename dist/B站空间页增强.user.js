@@ -2,7 +2,7 @@
 // @name         B站空间页增强（动态翻页/图文翻页/统一行高）
 // @name:zh-CN   B站空间页增强（动态翻页/图文翻页/统一行高）
 // @namespace    https://github.com/dfgger433/bili-space-tools
-// @version      1.0.4
+// @version      1.0.5
 // @description  单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @description:zh-CN 单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @author       dfgger433
@@ -1132,14 +1132,18 @@
   function coverThumbUrl(url, width = COVER_THUMB_WIDTH) {
     const value = normalizeUrl(url);
     if (!value || !/^https?:\/\//i.test(value)) return value;
-    if (value.includes("@")) return value;
     const w = Math.max(160, Math.round(Number(width) || COVER_THUMB_WIDTH));
-    return `${value}@${w}w.webp`;
+    const base = value.split("@")[0];
+    return `${base}@${w}w.webp`;
   }
   function coverDisplaySrc(cover, compress = true) {
     if (!cover) return "";
-    if (compress) return cover.thumbSrc || coverThumbUrl(cover.src);
-    return cover.src || "";
+    if (compress) {
+      const thumb = cover.thumbSrc ? coverThumbUrl(cover.thumbSrc) : "";
+      return thumb || coverThumbUrl(cover.src);
+    }
+    const src = cover.src || "";
+    return src.includes("@") ? src.split("@")[0] : src;
   }
   function normalizeHref(url) {
     return normalizeUrl(url) || "javascript:void(0)";
@@ -1805,7 +1809,7 @@
   }
 
   // src/scripts/opus-pagination.js
-  var VERSION2 = "0.4.1";
+  var VERSION2 = "0.4.2";
   var SCOPE2 = "opus";
   var STYLE_ID3 = "bili-tools-opus-style";
   var ACTIVE_CLASS2 = "bili-tools-opus-active";
@@ -3335,7 +3339,7 @@
   }
 
   // src/scripts/bili-space-tools.js
-  var VERSION4 = "1.0.4";
+  var VERSION4 = "1.0.5";
   var SCOPE4 = "all";
   var GLOBAL_KEY3 = "__biliToolsAllLoaded__";
   var log5 = createLogger(SCOPE4);

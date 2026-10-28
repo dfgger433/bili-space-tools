@@ -78,22 +78,32 @@ test('URL 协议相对地址补全', () => {
   assert.equal(normalizeUrl(''), '');
 });
 
-test('封面缩略图：按宽度压成 webp，已有参数不重复追加', () => {
+test('封面缩略图：按宽度压成 webp，已有变体统一换成 webp', () => {
   assert.equal(coverThumbUrl('http://i0.hdslb.com/a.jpg'), 'https://i0.hdslb.com/a.jpg@640w.webp');
   assert.equal(coverThumbUrl('//i0.hdslb.com/a.jpg', 480), 'https://i0.hdslb.com/a.jpg@480w.webp');
   assert.equal(
     coverThumbUrl('https://i0.hdslb.com/a.jpg@100w.webp'),
-    'https://i0.hdslb.com/a.jpg@100w.webp',
+    'https://i0.hdslb.com/a.jpg@640w.webp',
+  );
+  assert.equal(
+    coverThumbUrl('https://i0.hdslb.com/a.jpg@454w_596_fU1r.avif'),
+    'https://i0.hdslb.com/a.jpg@640w.webp',
   );
   assert.equal(coverThumbUrl('data:image/svg+xml,x'), 'data:image/svg+xml,x');
   assert.equal(coverThumbUrl(''), '');
 });
 
-test('图片压缩开关：按需选择原图 / 压缩图', () => {
+test('图片压缩开关：按需选择原图 / 压缩图，并避开 AVIF 变体', () => {
   const cover = { src: 'https://i0.hdslb.com/a.jpg', thumbSrc: 'https://i0.hdslb.com/a.jpg@640w.webp' };
   assert.equal(coverDisplaySrc(cover, true), cover.thumbSrc);
   assert.equal(coverDisplaySrc(cover, false), cover.src);
   assert.equal(coverDisplaySrc(null, true), '');
+  const avif = {
+    src: 'https://i0.hdslb.com/a.jpg@454w_596_fU1r.avif',
+    thumbSrc: 'https://i0.hdslb.com/a.jpg@454w_596_fU1r.avif',
+  };
+  assert.equal(coverDisplaySrc(avif, true), 'https://i0.hdslb.com/a.jpg@640w.webp');
+  assert.equal(coverDisplaySrc(avif, false), 'https://i0.hdslb.com/a.jpg');
   // 没有 thumbSrc 时自动补
   assert.equal(
     coverDisplaySrc({ src: 'https://i0.hdslb.com/b.jpg' }, true),
