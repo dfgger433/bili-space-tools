@@ -59,10 +59,16 @@ async function main() {
         const top = Math.round((rect.top + window.scrollY) * 100) / 100;
         if (!groups.has(top)) groups.set(top, []);
         const img = el.querySelector('.bili-cover-card img');
+        const card = el.querySelector('.opus-card');
+        const title = el.querySelector('.opus-card__title');
+        const cardRect = card?.getBoundingClientRect();
+        const titleRect = title?.getBoundingClientRect();
         groups.get(top).push({
           height: Math.round(rect.height * 100) / 100,
           objectFit: img ? getComputedStyle(img).objectFit : '',
           nativeClip: el.classList.contains('bt-opus-row-native-clip'),
+          titleHeight: titleRect ? Math.round(titleRect.height * 100) / 100 : 0,
+          titleFits: !titleRect || !cardRect ? true : titleRect.bottom <= cardRect.bottom + 1,
         });
       }
       const feed = document.querySelector('.opus-feed');
@@ -74,7 +80,14 @@ async function main() {
           : false,
         rows: Array.from(groups.entries())
           .sort((a, b) => a[0] - b[0])
-          .map(([top, list]) => ({ top, heights: list.map((x) => x.height), fits: [...new Set(list.map((x) => x.objectFit))], natives: list.map((x) => x.nativeClip) })),
+          .map(([top, list]) => ({
+            top,
+            heights: list.map((x) => x.height),
+            fits: [...new Set(list.map((x) => x.objectFit))],
+            natives: list.map((x) => x.nativeClip),
+            titles: list.map((x) => x.titleHeight),
+            titleFits: list.map((x) => x.titleFits),
+          })),
       };
     });
 
@@ -105,6 +118,8 @@ async function main() {
       if (stat && stat.clipped) {
         assert.ok(row.natives.some(Boolean), `第 ${i + 1} 行应有 B 站默认裁剪卡片`);
         assert.ok(row.fits.every((fit) => fit === 'contain' || fit === 'cover'), '裁剪行只允许 contain/cover');
+        assert.ok(row.titleFits.every(Boolean), `第 ${i + 1} 行裁剪时标题不应被卡片底部截断`);
+        assert.ok(row.titles.some((height) => height > 0), `第 ${i + 1} 行裁剪时应能看到标题`);
       } else {
         assert.ok(row.fits.every((fit) => fit === 'contain'), '未裁剪行封面应完整显示（contain）');
       }

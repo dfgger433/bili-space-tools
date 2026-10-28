@@ -4,7 +4,7 @@
 // @name         B站图文统一行高（独立脚本）
 // @name:zh-CN   B站图文统一行高（独立脚本）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.4.1
+// @version      0.4.2
 // @description  统一所有已加载图文行高：每行自动计算平均高度，按可调的“超出比例阈值”（默认 27%，油猴菜单可设，0=停用）裁剪高于平均值的内容；不包含分页/预取。
 // @description:zh-CN 统一所有已加载图文行高：每行自动计算平均高度，按可调的“超出比例阈值”（默认 27%，油猴菜单可设，0=停用）裁剪高于平均值的内容；不包含分页/预取。
 // @author       bili-space-tools
@@ -204,7 +204,7 @@
   }
 
   // src/scripts/opus-uniform-row.js
-  var VERSION = "0.4.1";
+  var VERSION = "0.4.2";
   var SCOPE = "opus-row";
   var STYLE_ID2 = "bili-tools-opus-row-style";
   var HIDE_CLASS = "bt-opus-row-hidden";
@@ -227,7 +227,11 @@
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card{overflow:hidden}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
-.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .opus-card{height:100%;display:flex;flex-direction:column;overflow:hidden}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card{flex:1 1 auto!important;min-height:0!important;height:auto!important;padding-top:0!important;overflow:hidden}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail{position:absolute!important;inset:0!important;height:auto!important}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{width:100%!important;height:100%!important;object-fit:cover!important}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .opus-card__title{flex:0 0 auto}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text .opus-card__icons{margin-top:auto}
 `;
