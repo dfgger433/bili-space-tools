@@ -10,6 +10,7 @@
     "test:e2e": "node test/e2e/run.mjs",
     "test:e2e:opus": "node test/e2e/opus.mjs",
     "test:live:opus": "node test/e2e/live-opus-smoke.mjs",
+    "test:live:row": "node test/e2e/live-opus-row-smoke.mjs",
     "test:e2e:real": "node test/e2e/real-dom-snapshot.mjs",
     "test:visual": "node test/e2e/pager-visual.mjs"
   },
@@ -18,3 +19,5 @@
     "playwright-core": "^1.49.0"
   }
 }
+
+

@@ -344,7 +344,7 @@ async function runUniformRowsTest(browser, base) {
   const { context, page, errors } = await openPage(browser, base, '', { withRow: true });
   await page.waitForFunction(() => window.BILI_TOOLS?.row?.state?.active === true, null, { timeout: 15000 });
   await page.waitForFunction(
-    () => document.querySelectorAll('.bt-opus-grid.bt-opus-uniform').length === 1,
+    () => document.querySelectorAll('.bt-opus-grid.bt-opus-uniform-root').length === 1,
     null,
     { timeout: 15000 },
   );
@@ -461,6 +461,7 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
 
 
 
