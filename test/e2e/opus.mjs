@@ -45,6 +45,27 @@ async function openPage(browser, base, query = '') {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><rect width="100%" height="100%" fill="hsl(${(index * 47) % 360},70%,80%)"/><text x="50%" y="50%" font-family="sans-serif" font-size="120" text-anchor="middle" dominant-baseline="middle" fill="#333">#${index}</text></svg>`;
     await route.fulfill({ status: 200, contentType: 'image/svg+xml', body: svg });
   });
+  // 模拟油猴菜单 API（脚本通过 GM_registerMenuCommand 暴露“图片压缩”开关）
+  await page.addInitScript(() => {
+    const commands = [];
+    let nextId = 1;
+    window.__gmMenuCommands = commands;
+    window.GM_registerMenuCommand = (name, callback) => {
+      const existing = commands.find((item) => item.name === name);
+      if (existing) {
+        existing.callback = callback;
+        return existing.id;
+      }
+      const id = nextId;
+      nextId += 1;
+      commands.push({ id, name, callback });
+      return id;
+    };
+    window.GM_unregisterMenuCommand = (id) => {
+      const index = commands.findIndex((item) => item.id === id);
+      if (index >= 0) commands.splice(index, 1);
+    };
+  });
   // 用 addInitScript 模拟 document-start 注入（脚本需要提前装接口观察器）
   await page.addInitScript({ path: SCRIPT });
   await page.goto(`${base}/631063962/upload/opus${query}`, { waitUntil: 'load' });
@@ -242,49 +263,48 @@ async function runNetworkTest(browser, base) {
 }
 
 async function runCompressionToggleTest(browser, base) {
-  console.log('--- 图片压缩开关 ---');
+  console.log('--- 油猴菜单：图片压缩开关 ---');
   const { context, page, errors } = await openPage(browser, base);
   const firstImgSrc = () =>
     page.evaluate(() => document.querySelector('.bt-opus-item img')?.getAttribute('src') || '');
-  const switchChecked = () => page.locator('.bt-opus-switch__input').isChecked();
+  const menuNames = () => page.evaluate(() => (window.__gmMenuCommands || []).map((item) => item.name));
+  const clickMenu = () =>
+    page.evaluate(() => {
+      const item = (window.__gmMenuCommands || []).find((cmd) => cmd.name.startsWith('图片压缩'));
+      if (!item) throw new Error('未找到图片压缩菜单');
+      item.callback(new MouseEvent('click'));
+    });
 
   let src = await firstImgSrc();
   assert.match(src, /@640w\.webp$/, '默认应加载压缩图');
-  assert.equal(await switchChecked(), true, '默认开关应为开启');
+  assert.deepEqual(await menuNames(), ['图片压缩：开'], '油猴菜单应显示“图片压缩：开”');
   assert.equal((await opusState(page)).compressImages, true);
-  await page.locator('.bt-opus-settings').scrollIntoViewIfNeeded();
-  await page.locator('.bt-opus-settings').screenshot({
-    path: path.join(SHOTS, 'opus-compress-switch.png'),
-  });
 
-  // 关闭压缩
-  await page.evaluate(() => {
-    document.querySelector('.bt-opus-switch__input')?.click();
-  });
+  // 通过油猴菜单关闭压缩
+  await clickMenu();
   await page.waitForTimeout(500);
   src = await firstImgSrc();
   assert.doesNotMatch(src, /@640w\.webp/, '关闭后应加载原图');
-  assert.equal(await switchChecked(), false);
+  assert.deepEqual(await menuNames(), ['图片压缩：关'], '菜单文案应更新为关');
   assert.equal((await opusState(page)).compressImages, false);
 
   // 刷新后保持关闭
   await page.reload({ waitUntil: 'load' });
   await page.waitForFunction(() => window.BILI_TOOLS?.opus?.active === true, null, { timeout: 25000 });
   await page.waitForTimeout(600);
-  assert.equal(await switchChecked(), false, '刷新后应保持关闭');
+  assert.deepEqual(await menuNames(), ['图片压缩：关'], '刷新后菜单应保持关闭');
   src = await firstImgSrc();
   assert.doesNotMatch(src, /@640w\.webp/, '刷新后仍应加载原图');
 
-  // 重新开启
-  await page.evaluate(() => {
-    document.querySelector('.bt-opus-switch__input')?.click();
-  });
+  // 再次通过菜单开启
+  await clickMenu();
   await page.waitForTimeout(500);
   src = await firstImgSrc();
   assert.match(src, /@640w\.webp$/, '重新开启后应加载压缩图');
+  assert.deepEqual(await menuNames(), ['图片压缩：开'], '菜单文案应更新为开');
   assert.deepEqual(errors, [], '不应有未捕获异常');
   await context.close();
-  console.log('图片压缩开关测试通过');
+  console.log('油猴菜单图片压缩开关测试通过');
 }
 
 async function main() {

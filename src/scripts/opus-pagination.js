@@ -24,7 +24,7 @@ import {
   findWaterfall,
 } from '../opus/adapter.js';
 
-const VERSION = '0.1.2';
+const VERSION = '0.2.0';
 const SCOPE = 'opus';
 const STYLE_ID = 'bili-tools-opus-style';
 const ACTIVE_CLASS = 'bili-tools-opus-active';
@@ -60,8 +60,6 @@ const state = {
   gridEl: null,
   pager: null,
   settings: loadSettings(),
-  settingsEl: null,
-  settingsInput: null,
   routeKey: '',
   nextBootAt: 0,
   observer: null,
@@ -85,15 +83,6 @@ const CSS = `
 .bt-opus-pager .vui_pagenation--btn-more.vui_button--disabled{display:none}
 .bili-tools-opus-active .opus-footer{padding:24px 0 32px}
 .bt-opus-busy{color:var(--text2,#61666d);font-size:12px;text-align:center;padding-top:8px}
-.bt-opus-settings{display:flex;justify-content:center;margin-top:8px}
-.bt-opus-switch{display:inline-flex;align-items:center;gap:8px;font-size:12px;line-height:18px;color:var(--text2,#61666d);cursor:pointer;user-select:none}
-.bt-opus-switch__input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
-.bt-opus-switch__track{position:relative;flex:none;width:32px;height:18px;border-radius:9px;background:var(--graph_bg_thick,#e3e5e7);transition:background-color .2s}
-.bt-opus-switch__thumb{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .2s}
-.bt-opus-switch__input:checked+.bt-opus-switch__track{background:var(--brand_blue,#00aeec)}
-.bt-opus-switch__input:checked+.bt-opus-switch__track .bt-opus-switch__thumb{transform:translateX(14px)}
-.bt-opus-switch__input:focus-visible+.bt-opus-switch__track{outline:2px solid var(--brand_blue,#00aeec);outline-offset:2px}
-.bt-opus-switch:hover{color:var(--brand_blue,#00aeec)}
 `;
 
 // ---------------------------------------------------------------------------
@@ -244,47 +233,59 @@ function ensurePager() {
   if (footer && state.pager.el.parentElement !== footer) {
     footer.appendChild(state.pager.el);
   }
-  ensureSettingsUi(footer);
 }
 
-function buildSettingsUi() {
-  const wrap = create('div', { className: 'bt-opus-settings' });
-  const label = create('label', {
-    className: 'bt-opus-switch',
-    attrs: { title: '开启后加载压缩后的封面（更快、省流量）；关闭则加载原图' },
-  });
-  const input = create('input', {
-    className: 'bt-opus-switch__input',
-    attrs: { type: 'checkbox', 'aria-label': '图片压缩' },
-  });
-  input.addEventListener('change', () => setCompressImages(input.checked));
-  label.appendChild(input);
-  const track = create('span', { className: 'bt-opus-switch__track' });
-  track.appendChild(create('span', { className: 'bt-opus-switch__thumb' }));
-  label.appendChild(track);
-  label.appendChild(create('span', { className: 'bt-opus-switch__label', text: '图片压缩' }));
-  wrap.appendChild(label);
-  state.settingsInput = input;
-  input.checked = Boolean(state.settings.compressImages);
-  return wrap;
+let menuCommandId = null;
+let menuCommandName = '';
+
+function compressionMenuName() {
+  return `图片压缩：${state.settings.compressImages ? '开' : '关'}`;
 }
 
-function ensureSettingsUi(footer) {
-  if (!state.settingsEl) state.settingsEl = buildSettingsUi();
-  const target = footer || document.querySelector('.opus-footer') || state.opusEl;
-  if (target && state.settingsEl.parentElement !== target) target.appendChild(state.settingsEl);
-  if (state.settingsInput) state.settingsInput.checked = Boolean(state.settings.compressImages);
+/**
+ * 在油猴扩展菜单里注册/更新“图片压缩”开关。
+ * 需要脚本 @grant GM_registerMenuCommand（并用 @sandbox raw 保持页面上下文）。
+ */
+function registerCompressionMenu() {
+  if (window.top !== window) return;
+  if (typeof GM_registerMenuCommand !== 'function') return;
+  const name = compressionMenuName();
+  if (menuCommandId !== null && name === menuCommandName) return;
+  try {
+    if (menuCommandId !== null && typeof GM_unregisterMenuCommand === 'function') {
+      GM_unregisterMenuCommand(menuCommandId);
+      menuCommandId = null;
+    }
+    const onClick = () => setCompressImages(!state.settings.compressImages);
+    try {
+      menuCommandId = GM_registerMenuCommand(name, onClick, {
+        autoClose: true,
+        title: '点击切换封面是否加载压缩图（开启更快，关闭加载原图）',
+      });
+    } catch {
+      // 旧版油猴不支持 options 参数
+      menuCommandId = GM_registerMenuCommand(name, onClick);
+    }
+    menuCommandName = name;
+  } catch (err) {
+    log.debug('注册油猴菜单失败', err);
+  }
 }
 
 function setCompressImages(value) {
   const next = Boolean(value);
-  if (state.settings.compressImages === next) return;
+  if (state.settings.compressImages === next) {
+    registerCompressionMenu();
+    return;
+  }
   state.settings.compressImages = next;
   saveSettings(state.settings);
-  if (state.settingsInput) state.settingsInput.checked = next;
   preloadedCovers.clear();
-  refresh(true);
-  toast(next ? '已开启图片压缩（封面加载更快）' : '已关闭图片压缩（封面加载原图）', { duration: 1800 });
+  if (state.active) refresh(true);
+  registerCompressionMenu();
+  if (state.active) {
+    toast(next ? '已开启图片压缩（封面加载更快）' : '已关闭图片压缩（封面加载原图）', { duration: 1800 });
+  }
 }
 
 function resolveLayout() {
@@ -633,11 +634,6 @@ function teardown() {
     state.pager.destroy();
     state.pager = null;
   }
-  if (state.settingsEl) {
-    state.settingsEl.remove();
-    state.settingsEl = null;
-    state.settingsInput = null;
-  }
   if (state.wrapEl) {
     state.wrapEl.remove();
     state.wrapEl = null;
@@ -722,6 +718,7 @@ function main() {
   startStyle();
   installCapture(onCapture);
   exposeDebug();
+  registerCompressionMenu();
   window.addEventListener('popstate', watchRoute);
   window.addEventListener('hashchange', watchRoute);
   setInterval(watchRoute, 500);

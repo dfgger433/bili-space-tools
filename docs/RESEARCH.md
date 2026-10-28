@@ -205,6 +205,8 @@ const build = (view) => {
 - 封面图床（`i0.hdslb.com` 等）支持在 URL 后追加 `@640w.webp` 按宽度压缩：
   实测同一张封面原图 342KB → `@640w.webp` 25KB → `@480w.webp` 17KB（`@640w_1c.webp` 会额外裁切，较大）。
   图文卡片使用 `@640w.webp`，并提供“图片压缩”开关允许切换回原图。
+- “图片压缩”开关放在 Tampermonkey 扩展菜单：需要 `GM_registerMenuCommand`（`GM_unregisterMenuCommand` 用于更新文案），
+  同时声明 `@sandbox raw` 让脚本继续运行在页面上下文，否则读不到页面的 Vue 实例 / 不能拦截 XHR。
 
 
 ### 3.4 卡片 DOM / CSS（原生）
