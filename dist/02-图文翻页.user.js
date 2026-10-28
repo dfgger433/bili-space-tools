@@ -860,10 +860,25 @@
     return null;
   }
   function findWaterfall(app) {
-    const root = app && app._instance;
-    if (!root) return null;
+    if (!app) return null;
+    const containerCandidates = [
+      app._container,
+      document.getElementById("app"),
+      document.querySelector("[data-v-app]")
+    ].filter(Boolean);
+    let rootVNode = null;
+    for (const el of containerCandidates) {
+      if (el && el._vnode) {
+        rootVNode = el._vnode;
+        break;
+      }
+    }
+    if (!rootVNode && app._instance && app._instance.subTree) {
+      rootVNode = app._instance.subTree;
+    }
+    if (!rootVNode) return null;
     const seen = /* @__PURE__ */ new Set();
-    const stack = [root.subTree].filter(Boolean);
+    const stack = [rootVNode];
     while (stack.length) {
       const vnode = stack.pop();
       if (!vnode || typeof vnode !== "object" || seen.has(vnode)) continue;

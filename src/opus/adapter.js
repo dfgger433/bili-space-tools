@@ -93,12 +93,28 @@ export function getVueApp() {
   return null;
 }
 
-/** 从 app._instance 的 vnode 树里找 WaterfallGrid 组件实例 */
+/** 从 app 挂载容器的 _vnode（生产环境没有 app._instance / __vueParentComponent）找 WaterfallGrid 组件实例 */
 export function findWaterfall(app) {
-  const root = app && app._instance;
-  if (!root) return null;
+  if (!app) return null;
+  // Vue 3 生产构建不会设置 app._instance（devtools 开关），但 render() 会把根 vnode 挂在容器的 _vnode 上
+  const containerCandidates = [
+    app._container,
+    document.getElementById('app'),
+    document.querySelector('[data-v-app]'),
+  ].filter(Boolean);
+  let rootVNode = null;
+  for (const el of containerCandidates) {
+    if (el && el._vnode) {
+      rootVNode = el._vnode;
+      break;
+    }
+  }
+  if (!rootVNode && app._instance && app._instance.subTree) {
+    rootVNode = app._instance.subTree;
+  }
+  if (!rootVNode) return null;
   const seen = new Set();
-  const stack = [root.subTree].filter(Boolean);
+  const stack = [rootVNode];
   while (stack.length) {
     const vnode = stack.pop();
     if (!vnode || typeof vnode !== 'object' || seen.has(vnode)) continue;

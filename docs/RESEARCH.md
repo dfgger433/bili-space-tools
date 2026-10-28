@@ -261,6 +261,9 @@ const build = (view) => {
 ### 3.5 Vue 3 实例入口
 
 - `#app` 是挂载容器，Vue 3 `app.mount()` 中执行 `container.__vue_app__ = app`（线上 bundle 未加 dev 开关）。
+- **注意**：线上生产构建里 `app._instance` 为 `null`（赋值在 `__DEV__ || __FEATURE_PROD_DEVTOOLS__` 分支内），
+  DOM 元素上也没有 `__vueParentComponent`。但 `render()` 会把根 vnode 挂在容器的 `container._vnode` 上，
+  从 `#app._vnode` 遍历 vnode 树可以拿到 `WaterfallGrid` 的组件实例（2026-10-28 在真实页面验证）。
 - 组件用 `defineComponent({ __name: "WaterfallGrid", props: {...}, setup() { ... return renderFn } })`；`instance.props.list` 为数据数组，`instance.vnode.props.onLoadMore` 为父页面拉取函数。
 - 由于 `setup` 直接返回 render 函数，组件内部闭包（布局 map、可视集合）不可直接访问；数据通过 props 取。
 

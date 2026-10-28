@@ -53,7 +53,7 @@
 - 文件：`dist/02-图文翻页.user.js`；match：`*://*.bilibili.com/*/upload/opus`、`*://*.bilibili.com/*/upload/opus/*`；`@run-at document-start`。
 - **每页 20 条**（2026-10-28 实测 B 站图文每次自动加载 20 条；用户确认按 20 实现），**保留原生自动加载**作为下一页预取。
 - 数据双通道（`src/opus/adapter.js`）：
-  1. Vue 实例：`#app.__vue_app__._instance` 遍历 vnode，定位 `__name === "WaterfallGrid"`（或按 `props.list` 形状），读取原生 `width/height/columnWidth` 与 `vnode.props.onLoadMore`；
+  1. Vue 实例：从 `#app.__vue_app__._container._vnode`（生产环境没有 `_instance`）遍历 vnode，定位 `__name === "WaterfallGrid"`（或按 `props.list` 形状），读取原生 `width/height/columnWidth` 与 `vnode.props.onLoadMore`；
   2. 抓包：`installCapture()` 只读观察页面自身对 `/x/polymer/web-dynamic/v1/opus/feed/space` 的 XHR/fetch，自行换算卡片尺寸；加载更多退化为滚到底触发页面自身的加载。
 - 接管渲染：给 `.opus` 加 `.bili-tools-opus-active` 隐藏原生 `.opus-feed`（保留其数据/请求/滚动逻辑），在 `.opus-body` 的 feed 后插入自己的网格；卡片用原生 class 重建（`src/opus/cards.js`）。
 - 布局复刻原生 `WaterfallGrid`（`src/opus/layout.js`）：列宽公式、前 10 条行优先 + 之后最短列、容器高度；窗口缩放按原生公式重排。

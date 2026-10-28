@@ -180,9 +180,9 @@
       subTree: { type: 'div', children: [] },
       isUnmounted: false,
     };
-    appEl.__vue_app__ = {
-      _instance: { subTree: { type: 'div', children: [{ component: fakeInstance }] } },
-    };
+    // 模拟生产环境的 Vue 3：app._instance 为空，根 vnode 挂在容器的 _vnode 上
+    appEl._vnode = { type: { name: 'App' }, children: [{ component: fakeInstance }] };
+    appEl.__vue_app__ = { _container: appEl };
   }
 
   setupVue();

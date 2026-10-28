@@ -74,6 +74,7 @@ npm install
 npm test               # 单元测试（分页窗口、图文布局/高度/列宽）
 npm run test:e2e       # 动态假页 e2e
 npm run test:e2e:opus  # 图文假页 e2e（含 Vue 通道与抓包通道）
+npm run test:live:opus # 图文真实站点冒烟（可选，需要联网）
 npm run test:e2e:real  # 真实页面 DOM 快照测试（动态）
 npm run test:visual    # 分页控件与原生参考的尺寸/视觉对比
 npm run build          # 生成 dist/*.user.js

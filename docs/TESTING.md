@@ -15,6 +15,9 @@ npm run test:e2e
 # 图文假页 e2e（Vue 通道 + 网络抓包通道）
 npm run test:e2e:opus
 
+# 图文真实站点冒烟（可选，需要联网；匿名访问公开 UP 主即可）
+npm run test:live:opus
+
 # 分页控件与原生参考的尺寸/字体对比（截图输出到 test/screenshots/）
 npm run test:visual
 
