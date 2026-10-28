@@ -14,6 +14,7 @@ import {
 import {
   computeColumnWidth,
   columnsForWidth,
+  layoutRows,
   layoutWaterfall,
   slicePage,
   totalPages,
@@ -152,6 +153,45 @@ test('瀑布流：等高时前 10 条行优先', () => {
   assert.deepEqual(layout.positions[9], { left: cw + g, top: 236 });
   assert.equal(layout.height, 354);
   assert.equal(layout.width, 4 * cw + 3 * g);
+});
+
+test('统一行高：行高取该行最高卡片', () => {
+  const items = [
+    { height: 140 },
+    { height: 100 },
+    { height: 120 },
+    { height: 90 },
+    { height: 80 },
+  ];
+  const layout = layoutRows(items, { columnWidth: 200, columns: 3, columnGutter: 20, rowGutter: 18 });
+  assert.deepEqual(layout.rowHeights, [140, 90]);
+  assert.deepEqual(
+    layout.positions.map((p) => p.height),
+    [140, 140, 140, 90, 90],
+  );
+  assert.deepEqual(
+    layout.positions.map((p) => p.left),
+    [0, 220, 440, 0, 220],
+  );
+  assert.deepEqual(
+    layout.positions.map((p) => p.top),
+    [0, 0, 0, 158, 158],
+  );
+  assert.deepEqual(
+    layout.positions.map((p) => p.row),
+    [0, 0, 0, 1, 1],
+  );
+  assert.equal(layout.width, 3 * 200 + 2 * 20);
+  assert.equal(layout.height, 140 + 18 + 90);
+});
+
+test('统一行高：最后一行不足列数', () => {
+  const items = Array.from({ length: 5 }, () => ({ height: 100 }));
+  const layout = layoutRows(items, { columnWidth: 200, columns: 3, rowGutter: 18 });
+  assert.equal(layout.rowHeights.length, 2);
+  assert.equal(layout.positions[3].left, 0);
+  assert.equal(layout.positions[4].left, 220);
+  assert.equal(layout.height, 100 + 18 + 100);
 });
 
 test('瀑布流：高度不同时不重叠且落在最短列', () => {

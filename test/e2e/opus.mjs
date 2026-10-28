@@ -9,6 +9,7 @@ import { startServer } from './server.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
 const SCRIPT = path.join(ROOT, 'dist', '02-图文翻页.user.js');
+const ROW_SCRIPT = path.join(ROOT, 'dist', '03-图文统一行高.user.js');
 const SHOTS = path.join(ROOT, 'test', 'screenshots');
 
 const CANDIDATES = [
@@ -32,7 +33,8 @@ async function findBrowser() {
   throw new Error('未找到 Chrome/Edge，可用 BILI_TEST_BROWSER 指定路径');
 }
 
-async function openPage(browser, base, query = '') {
+async function openPage(browser, base, query = '', options = {}) {
+  const { withRow = false } = options;
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
   const errors = [];
@@ -78,6 +80,7 @@ async function openPage(browser, base, query = '') {
   });
   // 用 addInitScript 模拟 document-start 注入（脚本需要提前装接口观察器）
   await page.addInitScript({ path: SCRIPT });
+  if (withRow) await page.addInitScript({ path: ROW_SCRIPT });
   await page.goto(`${base}/631063962/upload/opus${query}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.BILI_TOOLS?.opus?.active === true, null, { timeout: 25000 });
   await page.waitForTimeout(500);
@@ -346,8 +349,7 @@ async function main() {
     await runVueTest(browser, server.url);
     await runNetworkTest(browser, server.url);
     await runCompressionToggleTest(browser, server.url);
-    await runVueBlockedTest(browser, server.url);
-  } finally {
+    await runVueBlockedTest(browser, server.url);  } finally {
     await browser.close();
     await server.close();
   }
@@ -358,5 +360,8 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
+
+
 
 

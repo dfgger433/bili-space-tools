@@ -98,6 +98,52 @@ export function slicePage(items, page, pageSize) {
   return (items || []).slice(start, start + size);
 }
 
+/**
+ * 统一行高布局（阶段 3）：每列数为一组，行高取该行最高卡片；封面保持原始比例，不裁剪，
+ * 行内剩余高度由渲染层决定（优先展示被省略的标题/正文，没内容就留白）。
+ * @param {Array<{height:number}>} items
+ * @returns {{positions:Array<{left:number,top:number,height:number,row:number}>, rowHeights:number[], width:number, height:number}}
+ */
+export function layoutRows(
+  items,
+  {
+    columnWidth,
+    columns,
+    rowGutter = DEFAULT_ROW_GUTTER,
+    columnGutter = DEFAULT_COLUMN_GUTTER,
+  } = {},
+) {
+  const list = items || [];
+  const cw = Number(columnWidth) || 0;
+  const m = Math.max(1, Math.floor(Number(columns) || 1));
+  const positions = new Array(list.length);
+  const rowHeights = [];
+  let top = 0;
+
+  for (let start = 0; start < list.length; start += m) {
+    const row = list.slice(start, start + m);
+    const rowIndex = rowHeights.length;
+    const rowHeight = row.reduce((max, item) => Math.max(max, Number(item && item.height) || 0), 0);
+    rowHeights.push(rowHeight);
+    row.forEach((item, column) => {
+      positions[start + column] = {
+        left: column * (cw + columnGutter),
+        top,
+        height: rowHeight,
+        row: rowIndex,
+      };
+    });
+    top += rowHeight + rowGutter;
+  }
+
+  return {
+    positions,
+    rowHeights,
+    width: m * cw + (m - 1) * columnGutter,
+    height: Math.max(0, top - rowGutter),
+  };
+}
+
 export function totalPages(loadedCount, pageSize) {
   const size = Math.max(1, Math.floor(Number(pageSize) || 20));
   const count = Math.max(0, Math.floor(Number(loadedCount) || 0));

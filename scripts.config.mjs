@@ -54,6 +54,29 @@ export const scripts = [
       noframes: true,
     },
   },
+  {
+    id: 'opus-uniform-row',
+    entry: 'src/scripts/opus-uniform-row.js',
+    outfile: 'dist/03-图文统一行高.user.js',
+    meta: {
+      name: 'B站图文统一行高（独立脚本）',
+      nameZh: 'B站图文统一行高（独立脚本）',
+      namespace: 'https://github.com/bili-space-tools/bili-space-tools',
+      version: '0.3.0',
+      description: '依赖“B站图文翻页”脚本的网格，只统一每行卡片高度并展开被省略的文字；不包含分页/菜单/预取。',
+      descriptionZh: '依赖“B站图文翻页”脚本的网格，只统一每行卡片高度并展开被省略的文字；不包含分页/菜单/预取。',
+      author: 'bili-space-tools',
+      license: 'MIT',
+      icon: 'https://www.bilibili.com/favicon.ico',
+      match: [
+        '*://*.bilibili.com/*/upload/opus',
+        '*://*.bilibili.com/*/upload/opus/*',
+      ],
+      runAt: 'document-idle',
+      grants: ['none'],
+      noframes: true,
+    },
+  },
 ];
 
 
