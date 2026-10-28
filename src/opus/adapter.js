@@ -17,76 +17,105 @@ function parseParams(url) {
 }
 
 /** 安装 XHR/fetch 观察器（document-start 调用；只记录页面自己的请求，不修改响应） */
+function pageWindow() {
+  try {
+    if (typeof unsafeWindow !== 'undefined' && unsafeWindow) return unsafeWindow;
+  } catch {
+    /* ignore */
+  }
+  return window;
+}
+
+function pageDocument() {
+  try {
+    const win = pageWindow();
+    if (win && win.document) return win.document;
+  } catch {
+    /* ignore */
+  }
+  return document;
+}
+
 export function installCapture(onResponse) {
-  if (window.__biliToolsOpusCaptureInstalled) return;
-  window.__biliToolsOpusCaptureInstalled = true;
+  const W = pageWindow();
+  if (W.__biliToolsOpusCaptureInstalled) return;
+  W.__biliToolsOpusCaptureInstalled = true;
   log.info('已安装 opus 接口观察器');
 
-  const XHR = window.XMLHttpRequest;
+  const XHR = W.XMLHttpRequest;
   if (XHR && XHR.prototype && !XHR.prototype.__biliToolsPatched) {
-    const rawOpen = XHR.prototype.open;
-    const rawSend = XHR.prototype.send;
-    XHR.prototype.open = function patchedOpen(method, url, ...rest) {
-      try {
-        this.__btOpusUrl = typeof url === 'string' ? url : String(url);
-      } catch {
-        this.__btOpusUrl = '';
-      }
-      return rawOpen.call(this, method, url, ...rest);
-    };
-    XHR.prototype.send = function patchedSend(...args) {
-      const url = this.__btOpusUrl;
-      if (url && String(url).includes(API_PATH)) {
-        const xhr = this;
-        const report = () => {
-          if (xhr.readyState !== 4 || xhr.__btOpusReported) return;
-          xhr.__btOpusReported = true;
-          try {
-            let json = null;
-            if (!xhr.responseType || xhr.responseType === 'text') {
-              json = JSON.parse(xhr.responseText);
-            } else if (xhr.responseType === 'json') {
-              json = xhr.response;
+    try {
+      const rawOpen = XHR.prototype.open;
+      const rawSend = XHR.prototype.send;
+      XHR.prototype.open = function patchedOpen(method, url, ...rest) {
+        try {
+          this.__btOpusUrl = typeof url === 'string' ? url : String(url);
+        } catch {
+          this.__btOpusUrl = '';
+        }
+        return rawOpen.call(this, method, url, ...rest);
+      };
+      XHR.prototype.send = function patchedSend(...args) {
+        const url = this.__btOpusUrl;
+        if (url && String(url).includes(API_PATH)) {
+          const xhr = this;
+          const report = () => {
+            if (xhr.readyState !== 4 || xhr.__btOpusReported) return;
+            xhr.__btOpusReported = true;
+            try {
+              let json = null;
+              if (!xhr.responseType || xhr.responseType === 'text') {
+                json = JSON.parse(xhr.responseText);
+              } else if (xhr.responseType === 'json') {
+                json = xhr.response;
+              }
+              if (json && json.code === 0 && json.data) {
+                onResponse({ url: String(url), params: parseParams(url), data: json.data });
+              }
+            } catch (err) {
+              log.warn('解析 opus 响应失败', err);
             }
-            if (json && json.code === 0 && json.data) {
-              onResponse({ url: String(url), params: parseParams(url), data: json.data });
-            }
-          } catch (err) {
-            log.warn('解析 opus 响应失败', err);
-          }
-        };
-        xhr.addEventListener('readystatechange', report);
-        xhr.addEventListener('load', report);
-      }
-      return rawSend.apply(this, args);
-    };
-    XHR.prototype.__biliToolsPatched = true;
+          };
+          xhr.addEventListener('readystatechange', report);
+          xhr.addEventListener('load', report);
+        }
+        return rawSend.apply(this, args);
+      };
+      XHR.prototype.__biliToolsPatched = true;
+    } catch (err) {
+      log.warn('XHR 观察器安装失败', err);
+    }
   }
 
-  if (typeof window.fetch === 'function' && !window.fetch.__biliToolsPatched) {
-    const rawFetch = window.fetch;
-    const patchedFetch = function patchedFetch(input, init) {
-      const url = typeof input === 'string' ? input : (input && input.url) || '';
-      const result = rawFetch.apply(this, arguments);
-      if (String(url).includes(API_PATH) && result && typeof result.then === 'function') {
-        result
-          .then((res) => res.clone().json())
-          .then((json) => {
-            if (json && json.code === 0 && json.data) {
-              onResponse({ url: String(url), params: parseParams(url), data: json.data });
-            }
-          })
-          .catch(() => {});
-      }
-      return result;
-    };
-    patchedFetch.__biliToolsPatched = true;
-    window.fetch = patchedFetch;
+  try {
+    if (typeof W.fetch === 'function' && !W.fetch.__biliToolsPatched) {
+      const rawFetch = W.fetch;
+      const patchedFetch = function patchedFetch(input, init) {
+        const url = typeof input === 'string' ? input : (input && input.url) || '';
+        const result = rawFetch.apply(this, arguments);
+        if (String(url).includes(API_PATH) && result && typeof result.then === 'function') {
+          result
+            .then((res) => res.clone().json())
+            .then((json) => {
+              if (json && json.code === 0 && json.data) {
+                onResponse({ url: String(url), params: parseParams(url), data: json.data });
+              }
+            })
+            .catch(() => {});
+        }
+        return result;
+      };
+      patchedFetch.__biliToolsPatched = true;
+      W.fetch = patchedFetch;
+    }
+  } catch (err) {
+    log.warn('fetch 观察器安装失败', err);
   }
 }
 
 export function getVueApp() {
-  const candidates = [document.getElementById('app'), document.querySelector('[data-v-app]')];
+  const doc = pageDocument();
+  const candidates = [doc.getElementById('app'), doc.querySelector('[data-v-app]')];
   for (const el of candidates) {
     try {
       if (el && el.__vue_app__) return el.__vue_app__;
@@ -109,10 +138,11 @@ export function findWaterfall(app) {
 function findWaterfallUnsafe(app) {
   if (!app) return null;
   // Vue 3 生产构建不会设置 app._instance（devtools 开关），但 render() 会把根 vnode 挂在容器的 _vnode 上
+  const doc = pageDocument();
   const containerCandidates = [
     app._container,
-    document.getElementById('app'),
-    document.querySelector('[data-v-app]'),
+    doc.getElementById('app'),
+    doc.querySelector('[data-v-app]'),
   ].filter(Boolean);
   let rootVNode = null;
   for (const el of containerCandidates) {

@@ -4,16 +4,20 @@
 // @name         B站图文翻页（每页20条）
 // @name:zh-CN   B站图文翻页（每页20条）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.3.0
-// @description  把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式；图片压缩开关在油猴扩展菜单。
-// @description:zh-CN 把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式；图片压缩开关在油猴扩展菜单。
+// @version      0.4.0
+// @description  把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式；油猴菜单里可切换图片压缩。
+// @description:zh-CN 把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式；油猴菜单里可切换图片压缩。
 // @author       bili-space-tools
 // @license      MIT
 // @icon         https://www.bilibili.com/favicon.ico
 // @match        *://*.bilibili.com/*/upload/opus
 // @match        *://*.bilibili.com/*/upload/opus/*
 // @run-at       document-start
-// @grant        none
+// @grant        unsafeWindow
+// @grant        GM_registerMenuCommand
+// @grant        GM_unregisterMenuCommand
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @noframes
 // ==/UserScript==
 
@@ -800,18 +804,38 @@
     // 开启后封面加载压缩缩略图（@640w.webp，快）；关闭则加载原图（画质最好，但慢、流量大）
     compressImages: true
   };
-  function loadSettings() {
+  function readParsed() {
+    try {
+      if (typeof GM_getValue === "function") {
+        const raw = GM_getValue(STORAGE_KEY);
+        if (raw) {
+          const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+          if (parsed && typeof parsed === "object") return parsed;
+        }
+      }
+    } catch {
+    }
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : {};
-      return { ...DEFAULT_SETTINGS, ...parsed && typeof parsed === "object" ? parsed : {} };
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") return parsed;
+      }
     } catch {
-      return { ...DEFAULT_SETTINGS };
     }
+    return {};
+  }
+  function loadSettings() {
+    return { ...DEFAULT_SETTINGS, ...readParsed() };
   }
   function saveSettings(settings) {
+    const raw = JSON.stringify(settings);
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+      if (typeof GM_setValue === "function") GM_setValue(STORAGE_KEY, raw);
+    } catch {
+    }
+    try {
+      localStorage.setItem(STORAGE_KEY, raw);
     } catch {
     }
   }
@@ -827,71 +851,96 @@
       return {};
     }
   }
+  function pageWindow() {
+    try {
+      if (typeof unsafeWindow !== "undefined" && unsafeWindow) return unsafeWindow;
+    } catch {
+    }
+    return window;
+  }
+  function pageDocument() {
+    try {
+      const win = pageWindow();
+      if (win && win.document) return win.document;
+    } catch {
+    }
+    return document;
+  }
   function installCapture(onResponse) {
-    if (window.__biliToolsOpusCaptureInstalled) return;
-    window.__biliToolsOpusCaptureInstalled = true;
+    const W = pageWindow();
+    if (W.__biliToolsOpusCaptureInstalled) return;
+    W.__biliToolsOpusCaptureInstalled = true;
     log.info("已安装 opus 接口观察器");
-    const XHR = window.XMLHttpRequest;
+    const XHR = W.XMLHttpRequest;
     if (XHR && XHR.prototype && !XHR.prototype.__biliToolsPatched) {
-      const rawOpen = XHR.prototype.open;
-      const rawSend = XHR.prototype.send;
-      XHR.prototype.open = function patchedOpen(method, url, ...rest) {
-        try {
-          this.__btOpusUrl = typeof url === "string" ? url : String(url);
-        } catch {
-          this.__btOpusUrl = "";
-        }
-        return rawOpen.call(this, method, url, ...rest);
-      };
-      XHR.prototype.send = function patchedSend(...args) {
-        const url = this.__btOpusUrl;
-        if (url && String(url).includes(API_PATH)) {
-          const xhr = this;
-          const report = () => {
-            if (xhr.readyState !== 4 || xhr.__btOpusReported) return;
-            xhr.__btOpusReported = true;
-            try {
-              let json = null;
-              if (!xhr.responseType || xhr.responseType === "text") {
-                json = JSON.parse(xhr.responseText);
-              } else if (xhr.responseType === "json") {
-                json = xhr.response;
+      try {
+        const rawOpen = XHR.prototype.open;
+        const rawSend = XHR.prototype.send;
+        XHR.prototype.open = function patchedOpen(method, url, ...rest) {
+          try {
+            this.__btOpusUrl = typeof url === "string" ? url : String(url);
+          } catch {
+            this.__btOpusUrl = "";
+          }
+          return rawOpen.call(this, method, url, ...rest);
+        };
+        XHR.prototype.send = function patchedSend(...args) {
+          const url = this.__btOpusUrl;
+          if (url && String(url).includes(API_PATH)) {
+            const xhr = this;
+            const report = () => {
+              if (xhr.readyState !== 4 || xhr.__btOpusReported) return;
+              xhr.__btOpusReported = true;
+              try {
+                let json = null;
+                if (!xhr.responseType || xhr.responseType === "text") {
+                  json = JSON.parse(xhr.responseText);
+                } else if (xhr.responseType === "json") {
+                  json = xhr.response;
+                }
+                if (json && json.code === 0 && json.data) {
+                  onResponse({ url: String(url), params: parseParams(url), data: json.data });
+                }
+              } catch (err) {
+                log.warn("解析 opus 响应失败", err);
               }
+            };
+            xhr.addEventListener("readystatechange", report);
+            xhr.addEventListener("load", report);
+          }
+          return rawSend.apply(this, args);
+        };
+        XHR.prototype.__biliToolsPatched = true;
+      } catch (err) {
+        log.warn("XHR 观察器安装失败", err);
+      }
+    }
+    try {
+      if (typeof W.fetch === "function" && !W.fetch.__biliToolsPatched) {
+        const rawFetch = W.fetch;
+        const patchedFetch = function patchedFetch2(input, init) {
+          const url = typeof input === "string" ? input : input && input.url || "";
+          const result = rawFetch.apply(this, arguments);
+          if (String(url).includes(API_PATH) && result && typeof result.then === "function") {
+            result.then((res) => res.clone().json()).then((json) => {
               if (json && json.code === 0 && json.data) {
                 onResponse({ url: String(url), params: parseParams(url), data: json.data });
               }
-            } catch (err) {
-              log.warn("解析 opus 响应失败", err);
-            }
-          };
-          xhr.addEventListener("readystatechange", report);
-          xhr.addEventListener("load", report);
-        }
-        return rawSend.apply(this, args);
-      };
-      XHR.prototype.__biliToolsPatched = true;
-    }
-    if (typeof window.fetch === "function" && !window.fetch.__biliToolsPatched) {
-      const rawFetch = window.fetch;
-      const patchedFetch = function patchedFetch2(input, init) {
-        const url = typeof input === "string" ? input : input && input.url || "";
-        const result = rawFetch.apply(this, arguments);
-        if (String(url).includes(API_PATH) && result && typeof result.then === "function") {
-          result.then((res) => res.clone().json()).then((json) => {
-            if (json && json.code === 0 && json.data) {
-              onResponse({ url: String(url), params: parseParams(url), data: json.data });
-            }
-          }).catch(() => {
-          });
-        }
-        return result;
-      };
-      patchedFetch.__biliToolsPatched = true;
-      window.fetch = patchedFetch;
+            }).catch(() => {
+            });
+          }
+          return result;
+        };
+        patchedFetch.__biliToolsPatched = true;
+        W.fetch = patchedFetch;
+      }
+    } catch (err) {
+      log.warn("fetch 观察器安装失败", err);
     }
   }
   function getVueApp() {
-    const candidates = [document.getElementById("app"), document.querySelector("[data-v-app]")];
+    const doc = pageDocument();
+    const candidates = [doc.getElementById("app"), doc.querySelector("[data-v-app]")];
     for (const el of candidates) {
       try {
         if (el && el.__vue_app__) return el.__vue_app__;
@@ -909,10 +958,11 @@
   }
   function findWaterfallUnsafe(app) {
     if (!app) return null;
+    const doc = pageDocument();
     const containerCandidates = [
       app._container,
-      document.getElementById("app"),
-      document.querySelector("[data-v-app]")
+      doc.getElementById("app"),
+      doc.querySelector("[data-v-app]")
     ].filter(Boolean);
     let rootVNode = null;
     for (const el of containerCandidates) {
@@ -1077,7 +1127,7 @@
   }
 
   // src/scripts/opus-pagination.js
-  var VERSION = "0.3.0";
+  var VERSION = "0.4.0";
   var SCOPE = "opus";
   var STYLE_ID2 = "bili-tools-opus-style";
   var ACTIVE_CLASS = "bili-tools-opus-active";
@@ -1282,31 +1332,47 @@
       footer.appendChild(state.pager.el);
     }
   }
-  function syncSettingsFromStorage() {
-    let next;
+  var menuCommandId = null;
+  var menuCommandName = "";
+  function compressionMenuName() {
+    return `图片压缩：${state.settings.compressImages ? "开" : "关"}`;
+  }
+  function registerCompressionMenu() {
+    if (window.top !== window) return;
+    if (typeof GM_registerMenuCommand !== "function") return;
+    const name = compressionMenuName();
+    if (menuCommandId !== null && name === menuCommandName) return;
     try {
-      next = loadSettings();
-    } catch {
-      return;
-    }
-    if (next.compressImages === state.settings.compressImages) return;
-    state.settings = next;
-    preloadedCovers.clear();
-    if (state.active) {
-      refresh(true);
-      toast(next.compressImages ? "图片压缩已开启（封面加载更快）" : "图片压缩已关闭（封面加载原图）", {
-        duration: 1800
-      });
+      if (menuCommandId !== null && typeof GM_unregisterMenuCommand === "function") {
+        GM_unregisterMenuCommand(menuCommandId);
+        menuCommandId = null;
+      }
+      const onClick = () => setCompressImages(!state.settings.compressImages);
+      try {
+        menuCommandId = GM_registerMenuCommand(name, onClick, {
+          autoClose: true,
+          title: "点击切换封面是否加载压缩图（开启更快，关闭加载原图）"
+        });
+      } catch {
+        menuCommandId = GM_registerMenuCommand(name, onClick);
+      }
+      menuCommandName = name;
+    } catch (err) {
+      log2.debug("注册油猴菜单失败", err);
     }
   }
   function setCompressImages(value) {
     const next = Boolean(value);
-    if (state.settings.compressImages === next) return;
+    if (state.settings.compressImages === next) {
+      registerCompressionMenu();
+      return;
+    }
     state.settings.compressImages = next;
     saveSettings(state.settings);
     preloadedCovers.clear();
+    if (state.active) refresh(true);
+    registerCompressionMenu();
     if (state.active) {
-      refresh(true);
       toast(next ? "已开启图片压缩（封面加载更快）" : "已关闭图片压缩（封面加载原图）", { duration: 1800 });
     }
   }
@@ -1708,11 +1774,9 @@
     startStyle();
     installCapture(onCapture);
     exposeDebug();
+    registerCompressionMenu();
     window.addEventListener("popstate", watchRoute);
     window.addEventListener("hashchange", watchRoute);
-    window.addEventListener("storage", syncSettingsFromStorage);
-    window.addEventListener("bili-tools:opus-settings", syncSettingsFromStorage);
-    setInterval(syncSettingsFromStorage, 1e3);
     setInterval(watchRoute, 500);
     watchRoute();
   }

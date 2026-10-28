@@ -205,11 +205,11 @@ const build = (view) => {
 - 封面图床（`i0.hdslb.com` 等）支持在 URL 后追加 `@640w.webp` 按宽度压缩：
   实测同一张封面原图 342KB → `@640w.webp` 25KB → `@480w.webp` 17KB（`@640w_1c.webp` 会额外裁切，较大）。
   图文卡片使用 `@640w.webp`，并提供“图片压缩”开关允许切换回原图。
-- “图片压缩”开关放在 Tampermonkey 扩展菜单：需要 `GM_registerMenuCommand`（`GM_unregisterMenuCommand` 用于更新文案），
-  同时声明 `@sandbox raw` 让脚本继续运行在页面上下文，否则读不到页面的 Vue 实例 / 不能拦截 XHR。
-- 2026-10-28 实测发现：主脚本一旦申请 GM 权限，Firefox 下油猴仍可能把脚本放进受限上下文，访问 `#app.__vue_app__` / `_vnode` 会抛错；
-  而旧版 activate 在确认数据通道前就加了隐藏原生 feed 的 class，异常后整页空白。结论（v0.3.0）：主脚本保持 `@grant none`，
-  菜单拆到配套脚本；主脚本激活改为 fail-safe（先确认通道，Vue 访问失败回退抓包，渲染失败回滚原生页面）。
+- “图片压缩”开关放在 Tampermonkey 扩展菜单：需要 `GM_registerMenuCommand`（`GM_unregisterMenuCommand` 用于更新文案）。
+- 2026-10-28 实测发现：主脚本申请 GM 权限后，若用沙箱里的 `window`/`document` 去访问页面 XHR / Vue expando，会拿不到数据；
+  而旧版 activate 在确认数据通道前就加了隐藏原生 feed 的 class，异常后整页空白。
+- 参考 `参考文件/老粉计划.js`：带 GM 权限的脚本用 `const W = unsafeWindow || window` 访问页面，并直接 patch `W.XMLHttpRequest.prototype`，在 Firefox 下工作正常。
+  结论（v0.4.0）：单脚本保留 GM 权限，但页面级访问统一走 `unsafeWindow`（XHR/fetch、`document`、Vue 实例）；启动仍 fail-safe。
 
 
 ### 3.4 卡片 DOM / CSS（原生）
@@ -280,3 +280,4 @@ const build = (view) => {
 - 空间侧栏 `.side-nav__item.active .side-nav__item__sub-text` 的文本是该用户“图文”总数（快照：482），只适合“全部图文”口径。
 - `参考文件/动态分页.js` 是 GreasyFork 上一个第三方脚本（UIM258），思路是自行调 API + 重绘，与本方案不同；仅作反例参考。
 - B 站目前没有动态/图文卡片级的“翻译”按钮；官方 AI 翻译是头部设置 + 服务端下发。阶段 5 需另行定义。
+

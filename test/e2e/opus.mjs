@@ -9,7 +9,6 @@ import { startServer } from './server.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
 const SCRIPT = path.join(ROOT, 'dist', '02-图文翻页.user.js');
-const MENU_SCRIPT = path.join(ROOT, 'dist', '00-图文翻页菜单.user.js');
 const SHOTS = path.join(ROOT, 'test', 'screenshots');
 
 const CANDIDATES = [
@@ -66,11 +65,19 @@ async function openPage(browser, base, query = '') {
       const index = commands.findIndex((item) => item.id === id);
       if (index >= 0) commands.splice(index, 1);
     };
+    // 模拟 GM 存储（用 localStorage 兜底，保证 reload 后仍能读到）
+    window.GM_getValue = (key, defaultValue) => {
+      const raw = localStorage.getItem(`__btgm__${key}`);
+      return raw === null ? defaultValue : raw;
+    };
+    window.GM_setValue = (key, value) => {
+      localStorage.setItem(`__btgm__${key}`, String(value));
+    };
+    // 模拟油猴的 unsafeWindow（页面上下文里就是 window）
+    window.unsafeWindow = window;
   });
   // 用 addInitScript 模拟 document-start 注入（脚本需要提前装接口观察器）
   await page.addInitScript({ path: SCRIPT });
-  // 配套菜单脚本（只注册油猴菜单、写 localStorage）
-  await page.addInitScript({ path: MENU_SCRIPT });
   await page.goto(`${base}/631063962/upload/opus${query}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.BILI_TOOLS?.opus?.active === true, null, { timeout: 25000 });
   await page.waitForTimeout(500);
@@ -351,4 +358,5 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
 
