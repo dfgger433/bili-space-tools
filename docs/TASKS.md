@@ -32,18 +32,32 @@
 - [x] 构建 `dist/01-动态翻页.user.js`
 - [x] 手动验收清单（`docs/TESTING.md`）
 - [x] commit + tag `v0.2.0`
+- [x] `0.2.1` 内部健壮性修复：共享 `style.js` 支持 document-start 注入、重复注入不再覆盖调试入口（无行为变化）
 - [ ] 用户真实页面实测（等待反馈）
 
-## 阶段 2：图文页翻页（42 条/页）
+## 阶段 2：图文页翻页（分支 `feat/opus-pagination`，v0.1.0）
 
-- [ ] 数据通道 A：Vue 实例（`WaterfallGrid` 定位、`props.list`、`onLoadMore`）
-- [ ] 数据通道 B：XHR/fetch 抓包 + 原生高度公式
-- [ ] 原生卡片 DOM 重建（有封面 / 纯文字 / 徽章 / 统计 / 副标题）
-- [ ] 原生瀑布流布局复刻（threshold 10 + 最短列）
-- [ ] 接管渲染 + 隐藏原生 feed + 分页条（42/页）
-- [ ] resize / tab 切换 / 失败回退
-- [ ] 假页 e2e + 卡片视觉截图
-- [ ] 构建 `dist/02-图文翻页.user.js`，交付实测
+> 2026-10-28 实测：B 站图文列表每次自动加载 **20 条**（type=all/dynamic 均 20/页，article 满页也是 20）。
+> 用户确认：每页 20 条，保留原生自动加载作为下一页预取，复用 `src/shared/` 已验证部件。
+
+- [x] 复用已验证部件：`shared/pager.js`（原生分页条）、`shared/dom.js`、`shared/log.js`、`shared/style.js`、`shared/toast.js`
+- [x] 复用动态页已验证模式：预取数据不进当前页、`ERROR/PAUSED` 可重试、重复注入保护
+- [x] 数据通道 A：Vue 实例（`WaterfallGrid` 定位、`props.list`、`onLoadMore`）
+- [x] 数据通道 B：XHR/fetch 抓包 + 原生高度公式
+- [x] 原生卡片 DOM 重建（有封面 / 纯文字 / 徽章 / 统计 / 副标题），封面 http→https
+- [x] 原生瀑布流布局复刻（threshold 10 + 最短列）+ 列宽公式 + resize 重排
+- [x] 接管渲染 + 隐藏原生 feed + 分页条（20/页）
+- [x] 切 tab 重置、网络通道回退、两通道都失败时不接管
+- [x] 假页 e2e（Vue 通道 + 网络通道、预取、切 tab、resize、重复注入）+ 截图
+- [x] 真实站点冒烟（匿名公开页面）：首屏 20、滚到底预取、下一页、切 tab（专栏 13 / 动态 20）、resize、跳第 5 页，均通过
+- [x] 单元测试（布局/高度/URL/分页，新增 12 项）
+- [x] `0.1.1` 封面缩略图（`@640w.webp`）+ 立即加载 + 预热下两页，修复翻页灰色占位（根据 2026-10-28 录屏检查）
+- [x] `0.1.2` 图片压缩开关（分页条下方，默认开，localStorage 持久化；关闭加载原图并跳过预热）
+- [x] `0.2.0` 图片压缩开关移到 Tampermonkey 扩展菜单（`GM_registerMenuCommand` + `@sandbox raw`），移除页面内开关；菜单文案显示开/关
+- [x] `0.3.0` 过渡方案：主脚本恢复 `@grant none`，菜单拆到配套 `00-图文翻页菜单.user.js`；启动 fail-safe
+- [x] `0.4.0` 合并回单脚本：主脚本申请 `unsafeWindow` 等 GM 权限，用 `unsafeWindow` 访问页面 XHR / Vue 实例（参考 `参考文件/老粉计划.js`），菜单注册在同一脚本；删除配套菜单脚本
+- [x] 构建 `dist/02-图文翻页.user.js`
+- [ ] 用户真实页面实测（等待反馈）
 
 ## 阶段 3：统一行高
 

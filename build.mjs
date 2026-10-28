@@ -21,6 +21,7 @@ function header(meta) {
   push('match', meta.match);
   push('run-at', meta.runAt);
   for (const g of meta.grants || ['none']) push('grant', g);
+  if (meta.sandbox) push('sandbox', meta.sandbox);
   if (meta.noframes) lines.push('// @noframes');
   lines.push('// ==/UserScript==');
   return lines.join('\n') + '\n';

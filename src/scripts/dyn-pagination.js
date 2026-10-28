@@ -9,7 +9,7 @@ import { addStyle } from '../shared/style.js';
 import { createPager } from '../shared/pager.js';
 import { toast } from '../shared/toast.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 const SCOPE = 'dyn';
 // 与 B 站动态列表每次自动加载的条数对齐（接口每页约 12 条），
 // 这样滚到底触发的原生加载正好是“下一页”，下一页可以立即打开。
@@ -641,5 +641,7 @@ if (!window[GLOBAL_KEY]) {
   window[GLOBAL_KEY] = { version: VERSION, startedAt: Date.now() };
   main();
 } else {
-  exposeDebug();
+  // 已经注入过：保留原实例的调试入口，不要用当前空状态覆盖
+  log.debug('动态脚本已注入，跳过重复初始化');
 }
+

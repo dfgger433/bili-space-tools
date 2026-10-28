@@ -25,12 +25,74 @@ const MIME = {
   '.ttf': 'font/ttf',
 };
 
+const OPUS_API = '/x/polymer/web-dynamic/v1/opus/feed/space';
+const OPUS_TOTAL = 60;
+const OPUS_PAGE_SIZE = 20;
+const OPUS_RATIOS = [1.5, 1, 1.333, 0.75, 0.393, 0.667];
+
+function buildOpusItem(index) {
+  // index 从 1 开始
+  const ratio = OPUS_RATIOS[(index - 1) % OPUS_RATIOS.length];
+  const naturalWidth = 1200;
+  const naturalHeight = Math.round(naturalWidth / ratio);
+  const hasCover = index % 7 !== 0;
+  const item = {
+    opus_id: String(900000 + index),
+    jump_url: `//www.bilibili.com/opus/${900000 + index}`,
+    content: `图文 #${index} — ` + '测试正文内容'.repeat((index % 4) + 1),
+    author: index % 5 === 0 ? '测试UP主' : '',
+    pub_time: index % 5 === 0 ? `2026-10-${String((index % 28) + 1).padStart(2, '0')} 12:00` : '',
+    stat: { view: index % 3 === 0 ? String(100 + index) : '', like: String(10 + index) },
+  };
+  if (hasCover) {
+    item.cover = {
+      // 用 hdslb 域名模拟真实封面：脚本会追加 @640w.webp，e2e 里用路由拦下并返回占位图
+      url: `https://i0.hdslb.com/bfs/__test__/opus-${index}.svg`,
+      width: naturalWidth,
+      height: naturalHeight,
+    };
+  }
+  if (index % 11 === 0) {
+    item.badge = { text: '充电专属', bg_color: '#FF6699', color: '#FFFFFF' };
+  }
+  return item;
+}
+
+function buildOpusPage(page) {
+  const current = Math.max(1, Math.floor(Number(page) || 1));
+  const start = (current - 1) * OPUS_PAGE_SIZE + 1;
+  const end = Math.min(OPUS_TOTAL, start + OPUS_PAGE_SIZE - 1);
+  const items = [];
+  for (let i = start; i <= end; i += 1) items.push(buildOpusItem(i));
+  return {
+    code: 0,
+    message: '0',
+    ttl: 1,
+    data: {
+      items,
+      offset: String(current),
+      has_more: end < OPUS_TOTAL,
+    },
+  };
+}
+
 export async function startServer({ port = 0, root = ROOT } = {}) {
   const SNAPSHOT_DYN = '参考文件/arooka_阿若卡个人动态-arooka_阿若卡动态记录-哔哩哔哩视频.htm';
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://localhost');
       const pathname = decodeURIComponent(url.pathname);
+      // 假图文接口：分页返回 20 条，供 opus e2e 使用
+      if (pathname === OPUS_API) {
+        const body = JSON.stringify(buildOpusPage(url.searchParams.get('page')));
+        res.writeHead(200, {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+          'access-control-allow-origin': '*',
+        });
+        res.end(body);
+        return;
+      }
       // 真实 DOM 快照：伪装成动态路由，并补 <base> 让快照里的相对资源路径正确解析
       if (/^\/\d+\/dynamic$/.test(pathname) && url.searchParams.get('snapshot') === '1') {
         const html = await readFile(path.join(root, SNAPSHOT_DYN), 'utf8');

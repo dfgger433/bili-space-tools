@@ -9,7 +9,7 @@ export const scripts = [
       name: 'B站动态翻页（每页12条）',
       nameZh: 'B站动态翻页（每页12条）',
       namespace: 'https://github.com/bili-space-tools/bili-space-tools',
-      version: '0.2.0',
+      version: '0.2.1',
       description: '把 B 站用户空间动态页改为翻页浏览，每页 12 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生分页样式。',
       descriptionZh: '把 B 站用户空间动态页改为翻页浏览，每页 12 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生分页样式。',
       author: 'bili-space-tools',
@@ -24,4 +24,38 @@ export const scripts = [
       noframes: true,
     },
   },
+  {
+    id: 'opus-pagination',
+    entry: 'src/scripts/opus-pagination.js',
+    outfile: 'dist/02-图文翻页.user.js',
+    meta: {
+      name: 'B站图文翻页（每页20条）',
+      nameZh: 'B站图文翻页（每页20条）',
+      namespace: 'https://github.com/bili-space-tools/bili-space-tools',
+      version: '0.4.0',
+      description: '把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式；油猴菜单里可切换图片压缩。',
+      descriptionZh: '把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式；油猴菜单里可切换图片压缩。',
+      author: 'bili-space-tools',
+      license: 'MIT',
+      icon: 'https://www.bilibili.com/favicon.ico',
+      match: [
+        '*://*.bilibili.com/*/upload/opus',
+        '*://*.bilibili.com/*/upload/opus/*',
+      ],
+      runAt: 'document-start',
+      // 用 unsafeWindow 访问页面 XHR / Vue 实例；菜单/设置走 GM API
+      grants: [
+        'unsafeWindow',
+        'GM_registerMenuCommand',
+        'GM_unregisterMenuCommand',
+        'GM_getValue',
+        'GM_setValue',
+      ],
+      noframes: true,
+    },
+  },
 ];
+
+
+
+

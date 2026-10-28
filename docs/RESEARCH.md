@@ -193,6 +193,25 @@ const build = (view) => {
 
 （公式来自 `updateColumnWidth(total, cols, gutter)` = `(total - gutter*(cols-1)) / cols`。）
 
+#### 3.3.1 每次自动加载的条数（2026-10-28 实测）
+
+- 用 `buvid3/buvid4`（`/x/frontend/finger/spi`）匿名请求 `/x/polymer/web-dynamic/v1/opus/feed/space`（无需 wbi）：
+  - `host_mid=631063962&type=all`：page 1–4 每页都是 **20 条**，`has_more=true`，`offset` 19 位；
+  - `type=dynamic` 同样 20 条/页；`type=article` 满页时也是 20（该用户只有 13 篇，所以返回 13）。
+- 结论：**B 站图文列表每次自动加载 20 条**（首屏若渲染高度不足一屏，页面会再自动加载一次，最多首屏 40 条）。
+- 响应 item 形状（实测）：`{jump_url, opus_id, content, badge, author, cover:{url,width,height}, stat:{view,like}, pub_time}`；
+  `author/pub_time` 可能为空字符串，`jump_url` 是协议相对地址（`//www.bilibili.com/opus/...`）。
+- 对阶段 2 的建议：与动态页一致，页大小取自动加载批次 **20**，保留原生自动加载作为下一页预取。
+- 封面图床（`i0.hdslb.com` 等）支持在 URL 后追加 `@640w.webp` 按宽度压缩：
+  实测同一张封面原图 342KB → `@640w.webp` 25KB → `@480w.webp` 17KB（`@640w_1c.webp` 会额外裁切，较大）。
+  图文卡片使用 `@640w.webp`，并提供“图片压缩”开关允许切换回原图。
+- “图片压缩”开关放在 Tampermonkey 扩展菜单：需要 `GM_registerMenuCommand`（`GM_unregisterMenuCommand` 用于更新文案）。
+- 2026-10-28 实测发现：主脚本申请 GM 权限后，若用沙箱里的 `window`/`document` 去访问页面 XHR / Vue expando，会拿不到数据；
+  而旧版 activate 在确认数据通道前就加了隐藏原生 feed 的 class，异常后整页空白。
+- 参考 `参考文件/老粉计划.js`：带 GM 权限的脚本用 `const W = unsafeWindow || window` 访问页面，并直接 patch `W.XMLHttpRequest.prototype`，在 Firefox 下工作正常。
+  结论（v0.4.0）：单脚本保留 GM 权限，但页面级访问统一走 `unsafeWindow`（XHR/fetch、`document`、Vue 实例）；启动仍 fail-safe。
+
+
 ### 3.4 卡片 DOM / CSS（原生）
 
 ```html
@@ -250,6 +269,9 @@ const build = (view) => {
 ### 3.5 Vue 3 实例入口
 
 - `#app` 是挂载容器，Vue 3 `app.mount()` 中执行 `container.__vue_app__ = app`（线上 bundle 未加 dev 开关）。
+- **注意**：线上生产构建里 `app._instance` 为 `null`（赋值在 `__DEV__ || __FEATURE_PROD_DEVTOOLS__` 分支内），
+  DOM 元素上也没有 `__vueParentComponent`。但 `render()` 会把根 vnode 挂在容器的 `container._vnode` 上，
+  从 `#app._vnode` 遍历 vnode 树可以拿到 `WaterfallGrid` 的组件实例（2026-10-28 在真实页面验证）。
 - 组件用 `defineComponent({ __name: "WaterfallGrid", props: {...}, setup() { ... return renderFn } })`；`instance.props.list` 为数据数组，`instance.vnode.props.onLoadMore` 为父页面拉取函数。
 - 由于 `setup` 直接返回 render 函数，组件内部闭包（布局 map、可视集合）不可直接访问；数据通过 props 取。
 
@@ -258,3 +280,4 @@ const build = (view) => {
 - 空间侧栏 `.side-nav__item.active .side-nav__item__sub-text` 的文本是该用户“图文”总数（快照：482），只适合“全部图文”口径。
 - `参考文件/动态分页.js` 是 GreasyFork 上一个第三方脚本（UIM258），思路是自行调 API + 重绘，与本方案不同；仅作反例参考。
 - B 站目前没有动态/图文卡片级的“翻译”按钮；官方 AI 翻译是头部设置 + 服务端下发。阶段 5 需另行定义。
+
