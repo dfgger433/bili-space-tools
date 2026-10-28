@@ -1,13 +1,12 @@
-// 独立脚本：统一“所有已加载”的图文行高（不依赖图文翻页脚本，不做分页/预取/菜单）。
-// 做法：把原生 WaterfallGrid 里所有已加载的 .item 卡片克隆到一个自己的网格里，按行等高重排；
-// 原生网格隐藏但继续负责自动加载，源数据每次变化（滚动加载、tab、翻译等）都会重新克隆/排版。
-// 这样不会和原生 WaterfallGrid 的绝对定位互相覆盖，滚动/自动加载后也能持续生效。
+// 统一行高脚本：单独启用时克隆原生所有已加载图文，按行等高重排；
+// 02 图文翻页在用时接管 02 的 .bt-opus-grid，分页 + 统一行高同时生效。
+// 两种模式下都不修改原生 WaterfallGrid 的绝对定位，避免抢布局。
 import { DEFAULT_COLUMN_GUTTER, DEFAULT_ROW_GUTTER } from '../opus/model.js';
 import { layoutRows } from '../opus/layout.js';
 import { createLogger } from '../shared/log.js';
 import { addStyle } from '../shared/style.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.3.1';
 const SCOPE = 'opus-row';
 const STYLE_ID = 'bili-tools-opus-row-style';
 const HIDE_CLASS = 'bt-opus-row-hidden';
@@ -15,8 +14,10 @@ const WRAP_CLASS = 'bt-opus-row-wrap';
 const GRID_CLASS = 'bt-opus-row-grid';
 const ITEM_CLASS = 'bt-opus-row-item';
 const READY_CLASS = 'bt-opus-row-ready';
+const BT_ROOT_CLASS = 'bt-opus-row-bt';
 const TITLE_LINE_HEIGHT = 16.8;
 const TEXT_LINE_HEIGHT = 20;
+const STARTED_AT = Date.now();
 
 const log = createLogger(SCOPE);
 
@@ -30,6 +31,11 @@ const CSS = `
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text .opus-card__icons{margin-top:auto}
+.${BT_ROOT_CLASS} > .bt-opus-item .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
+.${BT_ROOT_CLASS} > .bt-opus-item .bili-cover-card{overflow:hidden}
+.${BT_ROOT_CLASS} > .bt-opus-item .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
+.${BT_ROOT_CLASS} > .bt-opus-item .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+.${BT_ROOT_CLASS} > .bt-opus-item .opus-card--only-text .opus-card__icons{margin-top:auto}
 `;
 
 const state = {
@@ -57,13 +63,23 @@ let layoutTimer = null;
 let boundLoad = false;
 let boundResize = false;
 let applying = false;
+let btGrid = null;
+let btObserver = null;
+let btAttrObserver = null;
+let btTimer = null;
+let btApplying = false;
+let btIgnoreUntil = 0;
+let btResizeBound = false;
 
 function exposeDebug() {
   window.BILI_TOOLS = window.BILI_TOOLS || {};
   window.BILI_TOOLS.row = {
     version: VERSION,
     state,
-    apply: () => scheduleRebuild(0),
+    apply: () => {
+      if (btGrid) scheduleBtApply(0);
+      else scheduleRebuild(0);
+    },
   };
 }
 
@@ -85,10 +101,7 @@ function sourceItemsOf(container) {
   return Array.from(container.querySelectorAll('.item'));
 }
 
-function findSource() {
-  // 02 正在接管时让位，避免两个网格互相打架；阶段 3 应当单独启用 03。
-  const opus = window.BILI_TOOLS && window.BILI_TOOLS.opus;
-  if (opus && opus.state && opus.state.active) return null;
+function findNativeSource() {
   const found = document.querySelector('.masonry_grid_v2');
   if (!found) return null;
   let container = found.querySelector('.container');
@@ -98,6 +111,24 @@ function findSource() {
   }
   if (!container || !sourceItemsOf(container).length) return null;
   return { masonry: found, source: container };
+}
+
+function findTarget() {
+  const opus = window.BILI_TOOLS && window.BILI_TOOLS.opus;
+  const opusActive = Boolean(opus && opus.state && opus.state.active);
+  if (opus && !opusActive && Date.now() - STARTED_AT < 2500) {
+    // 02 已安装但还在启动：先等它接管，避免 03 抢先隐藏原生网格
+    return null;
+  }
+  if (opusActive) {
+    // 02 分页脚本在用时，03 直接处理它的分页网格（两个脚本兼容，且都保持各自功能）
+    const bt = document.querySelector('.bt-opus-grid');
+    if (bt && bt.querySelector('.bt-opus-item')) return { mode: 'bt', grid: bt };
+    return null; // 02 还没渲染完，避免 03 去接管原生网格
+  }
+  const native = findNativeSource();
+  if (native) return { mode: 'native', ...native };
+  return null;
 }
 
 function signatureOf(items) {
@@ -296,6 +327,175 @@ function onResize() {
   scheduleRebuild(150);
 }
 
+function btItems() {
+  if (!btGrid) return [];
+  return Array.from(btGrid.children).filter(
+    (el) => el.classList && el.classList.contains('bt-opus-item'),
+  );
+}
+
+function btInfo(items) {
+  const first = items[0];
+  if (!first) return null;
+  const opus = window.BILI_TOOLS && window.BILI_TOOLS.opus;
+  const opusState = opus && opus.state;
+  if (opusState && opusState.columns > 0 && opusState.columnWidth > 0) {
+    return { columns: opusState.columns, columnWidth: opusState.columnWidth };
+  }
+  const firstWidth =
+    parseFloat(first.style.width) || first.getBoundingClientRect().width || 0;
+  if (!(firstWidth > 0)) return null;
+  const top = Math.round(first.getBoundingClientRect().top);
+  const columns = items.filter(
+    (el) => Math.abs(Math.round(el.getBoundingClientRect().top) - top) <= 2,
+  ).length;
+  return { columns: Math.max(1, columns), columnWidth: firstWidth };
+}
+
+function btApply() {
+  if (!btGrid || !btGrid.isConnected) {
+    attachTarget(null);
+    return;
+  }
+  const items = btItems();
+  if (!items.length) return;
+  const info = btInfo(items);
+  if (!info) return;
+  if (btApplying) return;
+  btApplying = true;
+  try {
+    btGrid.classList.remove(BT_ROOT_CLASS);
+    for (const item of items) {
+      item.style.removeProperty('height');
+      item.style.removeProperty('transform');
+      item.style.width = `${info.columnWidth}px`;
+      const clamp = clampElement(item);
+      if (clamp) clamp.el.style.setProperty('-webkit-line-clamp', String(clamp.base));
+      setCloneCoverRatio(item);
+    }
+    void btGrid.offsetHeight;
+    const naturalHeights = items.map((item) => {
+      const card = item.querySelector('.opus-card');
+      return Math.round(card ? card.offsetHeight : item.getBoundingClientRect().height);
+    });
+    const result = layoutRows(
+      naturalHeights.map((height) => ({ height })),
+      {
+        columnWidth: info.columnWidth,
+        columns: info.columns,
+        rowGutter: DEFAULT_ROW_GUTTER,
+        columnGutter: DEFAULT_COLUMN_GUTTER,
+      },
+    );
+    btGrid.classList.add(BT_ROOT_CLASS);
+    btGrid.style.width = `${result.width}px`;
+    btGrid.style.height = `${result.height}px`;
+    items.forEach((item, index) => {
+      const pos = result.positions[index];
+      item.style.height = `${pos.height}px`;
+      item.style.transform = `translate(${pos.left}px, ${pos.top}px)`;
+      const extra = Math.max(0, pos.height - naturalHeights[index]);
+      const clamp = clampElement(item);
+      if (clamp && extra > 0) {
+        const lines = clamp.base + Math.min(20, Math.floor(extra / clamp.lineHeight));
+        clamp.el.style.setProperty('-webkit-line-clamp', String(lines));
+      }
+    });
+    state.active = true;
+    state.mode = 'bt';
+    state.items = items.length;
+    state.columns = info.columns;
+    state.rows = result.rowHeights.length;
+    state.rowHeights = result.rowHeights;
+    state.lastError = '';
+    state.lastApplyAt = Date.now();
+    btIgnoreUntil = Date.now() + 200;
+  } finally {
+    btApplying = false;
+  }
+}
+
+function scheduleBtApply(delay = 60) {
+  if (!btGrid) return;
+  if (btTimer) clearTimeout(btTimer);
+  btTimer = setTimeout(() => {
+    btTimer = null;
+    try {
+      btApply();
+    } catch (err) {
+      state.lastError = String(err);
+      log.warn('统一行高（02 网格）失败', err);
+    }
+  }, delay);
+}
+
+function detachBt() {
+  if (btObserver) {
+    btObserver.disconnect();
+    btObserver = null;
+  }
+  if (btAttrObserver) {
+    btAttrObserver.disconnect();
+    btAttrObserver = null;
+  }
+  if (btTimer) {
+    clearTimeout(btTimer);
+    btTimer = null;
+  }
+  if (btGrid) {
+    btGrid.classList.remove(BT_ROOT_CLASS);
+    btGrid.removeEventListener('load', onBtLoad, true);
+    btGrid = null;
+  }
+  if (btResizeBound) {
+    window.removeEventListener('resize', onBtResize);
+    btResizeBound = false;
+  }
+}
+
+function onBtLoad() {
+  scheduleBtApply(80);
+}
+
+function onBtResize() {
+  scheduleBtApply(120);
+}
+
+function attachBt(next) {
+  btGrid = next.grid;
+  btGrid.classList.add(BT_ROOT_CLASS);
+  btObserver = new MutationObserver(() => scheduleBtApply(30));
+  btObserver.observe(btGrid, { childList: true, subtree: true });
+  btAttrObserver = new MutationObserver(() => {
+    if (btApplying) return;
+    if (Date.now() < btIgnoreUntil) return;
+    scheduleBtApply(80);
+  });
+  btAttrObserver.observe(btGrid, {
+    attributes: true,
+    attributeFilter: ['style'],
+    subtree: true,
+  });
+  btGrid.addEventListener('load', onBtLoad, true);
+  window.addEventListener('resize', onBtResize, { passive: true });
+  btResizeBound = true;
+  state.active = true;
+  log.info('已接管 02 分页网格，开始统一行高');
+  scheduleBtApply(0);
+}
+
+function attachTarget(next) {
+  if (btGrid && next && next.mode === 'bt' && btGrid === next.grid) return;
+  if (source && next && next.mode === 'native' && source === next.source && wrap && wrap.isConnected) return;
+  if (!btGrid && !source && !next) return;
+  detachBt();
+  detachSource();
+  if (!next) return;
+  if (next.mode === 'bt') attachBt(next);
+  else attachSource(next);
+}
+
+
 function detachSource() {
   if (sourceObserver) {
     sourceObserver.disconnect();
@@ -380,15 +580,19 @@ function start() {
   exposeDebug();
   log.info(`统一行高脚本 v${VERSION} 启动`);
   setInterval(() => {
-    const next = findSource();
-    attachSource(next);
-    if (source && source.isConnected) {
+    const next = findTarget();
+    attachTarget(next);
+    if (btGrid && btGrid.isConnected) {
+      if (btItems().length !== state.items || Date.now() - state.lastApplyAt > 3000) {
+        scheduleBtApply(0);
+      }
+    } else if (source && source.isConnected) {
       const items = sourceItems();
       if (signatureOf(items) !== cloneSignature) scheduleRebuild(0);
       else if (Date.now() - state.lastApplyAt > 3000) scheduleLayout(0);
     }
   }, 500);
-  attachSource(findSource());
+  attachTarget(findTarget());
 }
 
 const GLOBAL_KEY = '__biliToolsOpusRowLoaded__';

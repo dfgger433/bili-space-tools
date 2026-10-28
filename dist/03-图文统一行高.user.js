@@ -4,7 +4,7 @@
 // @name         B站图文统一行高（独立脚本）
 // @name:zh-CN   B站图文统一行高（独立脚本）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.3.0
+// @version      0.3.1
 // @description  依赖“B站图文翻页”脚本的网格，只统一每行卡片高度并展开被省略的文字；不包含分页/菜单/预取。
 // @description:zh-CN 依赖“B站图文翻页”脚本的网格，只统一每行卡片高度并展开被省略的文字；不包含分页/菜单/预取。
 // @author       bili-space-tools
@@ -113,7 +113,7 @@
   }
 
   // src/scripts/opus-uniform-row.js
-  var VERSION = "0.3.0";
+  var VERSION = "0.3.1";
   var SCOPE = "opus-row";
   var STYLE_ID = "bili-tools-opus-row-style";
   var HIDE_CLASS = "bt-opus-row-hidden";
@@ -121,8 +121,10 @@
   var GRID_CLASS = "bt-opus-row-grid";
   var ITEM_CLASS = "bt-opus-row-item";
   var READY_CLASS = "bt-opus-row-ready";
+  var BT_ROOT_CLASS = "bt-opus-row-bt";
   var TITLE_LINE_HEIGHT = 16.8;
   var TEXT_LINE_HEIGHT = 20;
+  var STARTED_AT = Date.now();
   var log = createLogger(SCOPE);
   var CSS = `
 .${HIDE_CLASS} .opus-feed{position:absolute!important;left:0;right:0;top:auto;height:0!important;overflow:hidden!important;visibility:hidden!important;pointer-events:none!important}
@@ -134,6 +136,11 @@
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text .opus-card__icons{margin-top:auto}
+.${BT_ROOT_CLASS} > .bt-opus-item .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
+.${BT_ROOT_CLASS} > .bt-opus-item .bili-cover-card{overflow:hidden}
+.${BT_ROOT_CLASS} > .bt-opus-item .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
+.${BT_ROOT_CLASS} > .bt-opus-item .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+.${BT_ROOT_CLASS} > .bt-opus-item .opus-card--only-text .opus-card__icons{margin-top:auto}
 `;
   var state = {
     active: false,
@@ -159,12 +166,22 @@
   var boundLoad = false;
   var boundResize = false;
   var applying = false;
+  var btGrid = null;
+  var btObserver = null;
+  var btAttrObserver = null;
+  var btTimer = null;
+  var btApplying = false;
+  var btIgnoreUntil = 0;
+  var btResizeBound = false;
   function exposeDebug() {
     window.BILI_TOOLS = window.BILI_TOOLS || {};
     window.BILI_TOOLS.row = {
       version: VERSION,
       state,
-      apply: () => scheduleRebuild(0)
+      apply: () => {
+        if (btGrid) scheduleBtApply(0);
+        else scheduleRebuild(0);
+      }
     };
   }
   function sourceItems() {
@@ -183,9 +200,7 @@
     if (direct.length) return direct;
     return Array.from(container.querySelectorAll(".item"));
   }
-  function findSource() {
-    const opus = window.BILI_TOOLS && window.BILI_TOOLS.opus;
-    if (opus && opus.state && opus.state.active) return null;
+  function findNativeSource() {
     const found = document.querySelector(".masonry_grid_v2");
     if (!found) return null;
     let container = found.querySelector(".container");
@@ -195,6 +210,21 @@
     }
     if (!container || !sourceItemsOf(container).length) return null;
     return { masonry: found, source: container };
+  }
+  function findTarget() {
+    const opus = window.BILI_TOOLS && window.BILI_TOOLS.opus;
+    const opusActive = Boolean(opus && opus.state && opus.state.active);
+    if (opus && !opusActive && Date.now() - STARTED_AT < 2500) {
+      return null;
+    }
+    if (opusActive) {
+      const bt = document.querySelector(".bt-opus-grid");
+      if (bt && bt.querySelector(".bt-opus-item")) return { mode: "bt", grid: bt };
+      return null;
+    }
+    const native = findNativeSource();
+    if (native) return { mode: "native", ...native };
+    return null;
   }
   function signatureOf(items) {
     return items.map((el) => {
@@ -366,6 +396,164 @@
   function onResize() {
     scheduleRebuild(150);
   }
+  function btItems() {
+    if (!btGrid) return [];
+    return Array.from(btGrid.children).filter(
+      (el) => el.classList && el.classList.contains("bt-opus-item")
+    );
+  }
+  function btInfo(items) {
+    const first = items[0];
+    if (!first) return null;
+    const opus = window.BILI_TOOLS && window.BILI_TOOLS.opus;
+    const opusState = opus && opus.state;
+    if (opusState && opusState.columns > 0 && opusState.columnWidth > 0) {
+      return { columns: opusState.columns, columnWidth: opusState.columnWidth };
+    }
+    const firstWidth = parseFloat(first.style.width) || first.getBoundingClientRect().width || 0;
+    if (!(firstWidth > 0)) return null;
+    const top = Math.round(first.getBoundingClientRect().top);
+    const columns = items.filter(
+      (el) => Math.abs(Math.round(el.getBoundingClientRect().top) - top) <= 2
+    ).length;
+    return { columns: Math.max(1, columns), columnWidth: firstWidth };
+  }
+  function btApply() {
+    if (!btGrid || !btGrid.isConnected) {
+      attachTarget(null);
+      return;
+    }
+    const items = btItems();
+    if (!items.length) return;
+    const info = btInfo(items);
+    if (!info) return;
+    if (btApplying) return;
+    btApplying = true;
+    try {
+      btGrid.classList.remove(BT_ROOT_CLASS);
+      for (const item of items) {
+        item.style.removeProperty("height");
+        item.style.removeProperty("transform");
+        item.style.width = `${info.columnWidth}px`;
+        const clamp = clampElement(item);
+        if (clamp) clamp.el.style.setProperty("-webkit-line-clamp", String(clamp.base));
+        setCloneCoverRatio(item);
+      }
+      void btGrid.offsetHeight;
+      const naturalHeights = items.map((item) => {
+        const card = item.querySelector(".opus-card");
+        return Math.round(card ? card.offsetHeight : item.getBoundingClientRect().height);
+      });
+      const result = layoutRows(
+        naturalHeights.map((height) => ({ height })),
+        {
+          columnWidth: info.columnWidth,
+          columns: info.columns,
+          rowGutter: DEFAULT_ROW_GUTTER,
+          columnGutter: DEFAULT_COLUMN_GUTTER
+        }
+      );
+      btGrid.classList.add(BT_ROOT_CLASS);
+      btGrid.style.width = `${result.width}px`;
+      btGrid.style.height = `${result.height}px`;
+      items.forEach((item, index) => {
+        const pos = result.positions[index];
+        item.style.height = `${pos.height}px`;
+        item.style.transform = `translate(${pos.left}px, ${pos.top}px)`;
+        const extra = Math.max(0, pos.height - naturalHeights[index]);
+        const clamp = clampElement(item);
+        if (clamp && extra > 0) {
+          const lines = clamp.base + Math.min(20, Math.floor(extra / clamp.lineHeight));
+          clamp.el.style.setProperty("-webkit-line-clamp", String(lines));
+        }
+      });
+      state.active = true;
+      state.mode = "bt";
+      state.items = items.length;
+      state.columns = info.columns;
+      state.rows = result.rowHeights.length;
+      state.rowHeights = result.rowHeights;
+      state.lastError = "";
+      state.lastApplyAt = Date.now();
+      btIgnoreUntil = Date.now() + 200;
+    } finally {
+      btApplying = false;
+    }
+  }
+  function scheduleBtApply(delay = 60) {
+    if (!btGrid) return;
+    if (btTimer) clearTimeout(btTimer);
+    btTimer = setTimeout(() => {
+      btTimer = null;
+      try {
+        btApply();
+      } catch (err) {
+        state.lastError = String(err);
+        log.warn("统一行高（02 网格）失败", err);
+      }
+    }, delay);
+  }
+  function detachBt() {
+    if (btObserver) {
+      btObserver.disconnect();
+      btObserver = null;
+    }
+    if (btAttrObserver) {
+      btAttrObserver.disconnect();
+      btAttrObserver = null;
+    }
+    if (btTimer) {
+      clearTimeout(btTimer);
+      btTimer = null;
+    }
+    if (btGrid) {
+      btGrid.classList.remove(BT_ROOT_CLASS);
+      btGrid.removeEventListener("load", onBtLoad, true);
+      btGrid = null;
+    }
+    if (btResizeBound) {
+      window.removeEventListener("resize", onBtResize);
+      btResizeBound = false;
+    }
+  }
+  function onBtLoad() {
+    scheduleBtApply(80);
+  }
+  function onBtResize() {
+    scheduleBtApply(120);
+  }
+  function attachBt(next) {
+    btGrid = next.grid;
+    btGrid.classList.add(BT_ROOT_CLASS);
+    btObserver = new MutationObserver(() => scheduleBtApply(30));
+    btObserver.observe(btGrid, { childList: true, subtree: true });
+    btAttrObserver = new MutationObserver(() => {
+      if (btApplying) return;
+      if (Date.now() < btIgnoreUntil) return;
+      scheduleBtApply(80);
+    });
+    btAttrObserver.observe(btGrid, {
+      attributes: true,
+      attributeFilter: ["style"],
+      subtree: true
+    });
+    btGrid.addEventListener("load", onBtLoad, true);
+    window.addEventListener("resize", onBtResize, { passive: true });
+    btResizeBound = true;
+    state.active = true;
+    log.info("已接管 02 分页网格，开始统一行高");
+    scheduleBtApply(0);
+  }
+  function attachTarget(next) {
+    if (btGrid && next && next.mode === "bt" && btGrid === next.grid) return;
+    if (source && next && next.mode === "native" && source === next.source && wrap && wrap.isConnected) return;
+    if (!btGrid && !source && !next) return;
+    detachBt();
+    detachSource();
+    if (!next) return;
+    if (next.mode === "bt") attachBt(next);
+    else attachSource(next);
+  }
   function detachSource() {
     if (sourceObserver) {
       sourceObserver.disconnect();
@@ -444,15 +632,19 @@
     exposeDebug();
     log.info(`统一行高脚本 v${VERSION} 启动`);
     setInterval(() => {
-      const next = findSource();
-      attachSource(next);
-      if (source && source.isConnected) {
+      const next = findTarget();
+      attachTarget(next);
+      if (btGrid && btGrid.isConnected) {
+        if (btItems().length !== state.items || Date.now() - state.lastApplyAt > 3e3) {
+          scheduleBtApply(0);
+        }
+      } else if (source && source.isConnected) {
         const items = sourceItems();
         if (signatureOf(items) !== cloneSignature) scheduleRebuild(0);
         else if (Date.now() - state.lastApplyAt > 3e3) scheduleLayout(0);
       }
     }, 500);
-    attachSource(findSource());
+    attachTarget(findTarget());
   }
   var GLOBAL_KEY = "__biliToolsOpusRowLoaded__";
   var previous = window[GLOBAL_KEY];

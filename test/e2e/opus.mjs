@@ -339,6 +339,109 @@ async function runVueBlockedTest(browser, base) {
   console.log('Vue 访问失败回退测试通过');
 }
 
+async function runUniformRowsTest(browser, base) {
+  console.log('--- 统一行高脚本（02 + 03 兼容） ---');
+  const { context, page, errors } = await openPage(browser, base, '', { withRow: true });
+  await page.waitForFunction(() => window.BILI_TOOLS?.row?.state?.active === true, null, { timeout: 15000 });
+  await page.waitForFunction(
+    () => window.BILI_TOOLS?.row?.state?.mode === 'bt' &&
+      document.querySelectorAll('.bt-opus-grid.bt-opus-row-bt').length === 1,
+    null,
+    { timeout: 15000 },
+  );
+  await page.waitForTimeout(900);
+  const st = await opusState(page);
+  assert.equal(st.active, true, '02 分页脚本应在运行');
+  assert.equal(await itemCount(page), 20);
+  assert.equal(await page.locator('.bt-opus-pager').count(), 1, '03 不应重复创建分页条');
+  const rowState = await page.evaluate(() => window.BILI_TOOLS.row.state);
+  assert.equal(rowState.mode, 'bt', '03 应接管 02 的分页网格');
+  assert.equal(rowState.items, 20);
+  assert.equal(rowState.columns, st.columns);
+  assert.ok(rowState.rows >= 1);
+
+  const readRows = () =>
+    page.evaluate(() => {
+      const items = Array.from(document.querySelectorAll('.bt-opus-item'));
+      const groups = new Map();
+      for (const el of items) {
+        const rect = el.getBoundingClientRect();
+        const top = Math.round((rect.top + window.scrollY) * 100) / 100;
+        if (!groups.has(top)) groups.set(top, []);
+        const coverEl = el.querySelector('.bili-cover-card');
+        const coverStyle = coverEl ? coverEl.getAttribute('style') || '' : '';
+        const ratioMatch = coverStyle.match(/--bili-cover-card-ratio:\s*([\d.]+)%/);
+        const titleEl = el.querySelector('.bt-opus-title-text');
+        const textEl = el.querySelector('.bt-opus-text-clamp');
+        const clampEl = titleEl || textEl;
+        const clamp = clampEl
+          ? Number(clampEl.style.getPropertyValue('-webkit-line-clamp') || 0)
+          : 0;
+        groups.get(top).push({
+          height: Math.round(rect.height * 100) / 100,
+          left: Math.round(rect.left * 100) / 100,
+          cover: Math.round((coverEl?.getBoundingClientRect().height || 0) * 100) / 100,
+          ratio: ratioMatch ? Number(ratioMatch[1]) : 0,
+          clamp,
+          baseClamp: titleEl ? 2 : textEl ? 3 : 0,
+          objectFit: coverEl?.querySelector('img') ? getComputedStyle(coverEl.querySelector('img')).objectFit : '',
+        });
+      }
+      return Array.from(groups.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([top, list]) => ({ top, list }));
+    });
+
+  const assertRows = (rows, columns, label) => {
+    assert.equal(rows.length, Math.ceil(20 / columns), `${label}：行数`);
+    let expanded = 0;
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      const height = row.list[0].height;
+      for (const item of row.list) {
+        assert.ok(Math.abs(item.height - height) <= 1, `${label} 第 ${i + 1} 行卡片高度应一致`);
+        if (item.cover > 0) {
+          assert.equal(item.objectFit, 'contain', `${label} 封面应完整显示（不裁剪）`);
+          const expected = (st.columnWidth * item.ratio) / 100;
+          assert.ok(
+            Math.abs(item.cover - expected) <= 2,
+            `${label} 第 ${i + 1} 行封面应保持原始比例（${item.cover} vs ${expected}）`,
+          );
+        }
+        if (item.clamp > item.baseClamp) expanded += 1;
+      }
+      for (let j = 1; j < row.list.length; j += 1) {
+        assert.ok(row.list[j].left > row.list[j - 1].left, `${label} 第 ${i + 1} 行从左到右排列`);
+      }
+    }
+    for (let i = 1; i < rows.length; i += 1) {
+      const prev = rows[i - 1];
+      const prevBottom = prev.top + prev.list[0].height;
+      assert.ok(rows[i].top >= prevBottom, `${label}：行之间不应重叠`);
+    }
+    assert.ok(expanded > 0, `${label}：应有卡片用被省略的文字填充行高`);
+  };
+
+  const rows1 = await readRows();
+  assertRows(rows1, st.columns, '第 1 页');
+  await page.screenshot({ path: path.join(SHOTS, 'opus-uniform-row.png'), fullPage: true });
+
+  await clickNextNoScroll(page);
+  await page.waitForFunction(() => window.BILI_TOOLS.opus.state.page === 2, null, { timeout: 20000 });
+  await page.waitForFunction(
+    () => window.BILI_TOOLS?.row?.state?.mode === 'bt' && window.BILI_TOOLS.row.state.items === 20,
+    null,
+    { timeout: 15000 },
+  );
+  await page.waitForTimeout(700);
+  assert.equal(await itemCount(page), 20);
+  const rows2 = await readRows();
+  assertRows(rows2, st.columns, '第 2 页');
+
+  assert.deepEqual(errors, [], '不应有未捕获异常');
+  await context.close();
+  console.log('统一行高测试通过');
+}
 async function main() {
   await mkdir(SHOTS, { recursive: true });
   const executablePath = await findBrowser();
@@ -349,7 +452,9 @@ async function main() {
     await runVueTest(browser, server.url);
     await runNetworkTest(browser, server.url);
     await runCompressionToggleTest(browser, server.url);
-    await runVueBlockedTest(browser, server.url);  } finally {
+    await runVueBlockedTest(browser, server.url);
+    await runUniformRowsTest(browser, server.url);
+  } finally {
     await browser.close();
     await server.close();
   }
@@ -360,6 +465,7 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
 
 
 
