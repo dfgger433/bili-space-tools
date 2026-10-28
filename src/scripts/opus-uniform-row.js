@@ -7,7 +7,7 @@ import { createLogger } from '../shared/log.js';
 import { addStyle } from '../shared/style.js';
 import { toast } from '../shared/toast.js';
 
-const VERSION = '0.4.0';
+const VERSION = '0.4.1';
 const SCOPE = 'opus-row';
 const STYLE_ID = 'bili-tools-opus-row-style';
 const HIDE_CLASS = 'bt-opus-row-hidden';
@@ -15,6 +15,7 @@ const WRAP_CLASS = 'bt-opus-row-wrap';
 const GRID_CLASS = 'bt-opus-row-grid';
 const ITEM_CLASS = 'bt-opus-row-item';
 const READY_CLASS = 'bt-opus-row-ready';
+const NATIVE_CLIP_CLASS = 'bt-opus-row-native-clip';
 const SETTINGS_KEY = 'biliTools:opusRow';
 const LOCAL_KEY = 'biliTools:opusRow:clipPercent';
 const DEFAULT_CLIP_PERCENT = 27;
@@ -31,6 +32,7 @@ const CSS = `
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card{overflow:hidden}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text .opus-card__icons{margin-top:auto}
 `;
@@ -296,10 +298,24 @@ function resetClone(item, columnWidth) {
   item.style.removeProperty('height');
   item.style.removeProperty('transform');
   item.style.width = `${columnWidth}px`;
+  item.classList.remove(NATIVE_CLIP_CLASS);
   const clamp = clampElement(item);
   if (clamp) clamp.el.style.setProperty('-webkit-line-clamp', String(clamp.base));
   restoreCloneImage(item);
   setCloneCoverRatio(item);
+}
+
+/**
+ * B 站默认裁剪：使用原生卡片的封面比例（--bili-cover-card-ratio）+
+ * object-fit: cover，让超过平均值的卡片以原生封面的方式裁剪，而不是直接切断卡片。
+ */
+function applyNativeClip(item) {
+  const ratio = item.dataset.btNativeRatio;
+  const cover = item.querySelector('.bili-cover-card');
+  if (!ratio || !cover) return false;
+  cover.style.setProperty('--bili-cover-card-ratio', ratio);
+  item.classList.add(NATIVE_CLIP_CLASS);
+  return true;
 }
 
 function rebuild() {
@@ -323,6 +339,15 @@ function rebuild() {
       clone.removeAttribute('style');
       clone.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
       clone.style.width = `${info.columnWidth}px`;
+      const cover = clone.querySelector('.bili-cover-card');
+      const img = clone.querySelector('.bili-cover-card img');
+      let nativeRatio = (cover && cover.style.getPropertyValue('--bili-cover-card-ratio')) || '';
+      if (!nativeRatio && img) {
+        const src = img.getAttribute('src') || '';
+        const match = src.match(/@(\d+)w_(\d+)h_/);
+        if (match) nativeRatio = `${((Number(match[2]) / Number(match[1])) * 100).toFixed(3)}%`;
+      }
+      if (nativeRatio) clone.dataset.btNativeRatio = nativeRatio;
       restoreCloneImage(clone);
       grid.appendChild(clone);
       clones.push(clone);
@@ -366,6 +391,15 @@ function layout() {
       // 新算法：不再强行展开文字；差距大时只裁掉卡片底部高于平均值的内容
       const clamp = clampElement(clone);
       if (clamp) clamp.el.style.setProperty('-webkit-line-clamp', String(clamp.base));
+      // B 站默认裁剪：超过平均值的卡片改用原生封面比例 + cover 裁剪
+      const rowIndex = Math.floor(index / info.columns);
+      const stat = result.rowStats[rowIndex];
+      const useNativeClip = Boolean(stat && stat.clipped && naturalHeights[index] > stat.rowHeight);
+      if (useNativeClip) {
+        if (!applyNativeClip(clone)) clone.classList.remove(NATIVE_CLIP_CLASS);
+      } else {
+        clone.classList.remove(NATIVE_CLIP_CLASS);
+      }
     });
     state.active = true;
     state.mode = 'native';
@@ -525,3 +559,4 @@ if (!previous || previous.version !== VERSION) {
 } else {
   log.debug('统一行高脚本已注入，跳过重复初始化');
 }
+

@@ -4,7 +4,7 @@
 // @name         B站图文统一行高（独立脚本）
 // @name:zh-CN   B站图文统一行高（独立脚本）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.4.0
+// @version      0.4.1
 // @description  统一所有已加载图文行高：每行自动计算平均高度，按可调的“超出比例阈值”（默认 27%，油猴菜单可设，0=停用）裁剪高于平均值的内容；不包含分页/预取。
 // @description:zh-CN 统一所有已加载图文行高：每行自动计算平均高度，按可调的“超出比例阈值”（默认 27%，油猴菜单可设，0=停用）裁剪高于平均值的内容；不包含分页/预取。
 // @author       bili-space-tools
@@ -204,7 +204,7 @@
   }
 
   // src/scripts/opus-uniform-row.js
-  var VERSION = "0.4.0";
+  var VERSION = "0.4.1";
   var SCOPE = "opus-row";
   var STYLE_ID2 = "bili-tools-opus-row-style";
   var HIDE_CLASS = "bt-opus-row-hidden";
@@ -212,6 +212,7 @@
   var GRID_CLASS = "bt-opus-row-grid";
   var ITEM_CLASS = "bt-opus-row-item";
   var READY_CLASS = "bt-opus-row-ready";
+  var NATIVE_CLIP_CLASS = "bt-opus-row-native-clip";
   var SETTINGS_KEY = "biliTools:opusRow";
   var LOCAL_KEY = "biliTools:opusRow:clipPercent";
   var DEFAULT_CLIP_PERCENT = 27;
@@ -226,6 +227,7 @@
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card{overflow:hidden}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text .opus-card__icons{margin-top:auto}
 `;
@@ -449,10 +451,19 @@
     item.style.removeProperty("height");
     item.style.removeProperty("transform");
     item.style.width = `${columnWidth}px`;
+    item.classList.remove(NATIVE_CLIP_CLASS);
     const clamp = clampElement(item);
     if (clamp) clamp.el.style.setProperty("-webkit-line-clamp", String(clamp.base));
     restoreCloneImage(item);
     setCloneCoverRatio(item);
+  }
+  function applyNativeClip(item) {
+    const ratio = item.dataset.btNativeRatio;
+    const cover = item.querySelector(".bili-cover-card");
+    if (!ratio || !cover) return false;
+    cover.style.setProperty("--bili-cover-card-ratio", ratio);
+    item.classList.add(NATIVE_CLIP_CLASS);
+    return true;
   }
   function rebuild() {
     if (!source || !source.isConnected || !grid) {
@@ -475,6 +486,15 @@
         clone.removeAttribute("style");
         clone.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
         clone.style.width = `${info.columnWidth}px`;
+        const cover = clone.querySelector(".bili-cover-card");
+        const img = clone.querySelector(".bili-cover-card img");
+        let nativeRatio = cover && cover.style.getPropertyValue("--bili-cover-card-ratio") || "";
+        if (!nativeRatio && img) {
+          const src = img.getAttribute("src") || "";
+          const match = src.match(/@(\d+)w_(\d+)h_/);
+          if (match) nativeRatio = `${(Number(match[2]) / Number(match[1]) * 100).toFixed(3)}%`;
+        }
+        if (nativeRatio) clone.dataset.btNativeRatio = nativeRatio;
         restoreCloneImage(clone);
         grid.appendChild(clone);
         clones.push(clone);
@@ -516,6 +536,14 @@
         clone.style.transform = `translate(${pos.left}px, ${pos.top}px)`;
         const clamp = clampElement(clone);
         if (clamp) clamp.el.style.setProperty("-webkit-line-clamp", String(clamp.base));
+        const rowIndex = Math.floor(index / info.columns);
+        const stat = result.rowStats[rowIndex];
+        const useNativeClip = Boolean(stat && stat.clipped && naturalHeights[index] > stat.rowHeight);
+        if (useNativeClip) {
+          if (!applyNativeClip(clone)) clone.classList.remove(NATIVE_CLIP_CLASS);
+        } else {
+          clone.classList.remove(NATIVE_CLIP_CLASS);
+        }
       });
       state.active = true;
       state.mode = "native";

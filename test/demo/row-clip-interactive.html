@@ -175,7 +175,7 @@
       <input id="thresholdNumber" type="number" min="0" max="100" step="1" value="30" aria-label="裁剪阈值数字">
     </div>
     <div class="presets" id="presets"></div>
-    <div class="hint">规则：<b>超出比例 = (最高 − 平均) ÷ 平均</b>；超出比例 &gt; 阈值 → 裁剪，行高 = 平均值；≤ 阈值 → 原始内容，行高 = 最高值。<b>0 = 停用</b>。</div>
+    <div class="hint">规则：<b>超出比例 = (最高 − 平均) ÷ 平均</b>；超出比例 &gt; 阈值 → 裁剪，行高 = 平均值；≤ 阈值 → 原始内容，行高 = 最高值。<b>0 = 停用</b>。<br>说明：实际脚本对超过平均值的卡片使用 <b>B 站原生封面比例 + object-fit: cover</b> 裁剪（标题保留）；本页的红色斜纹只表示“超过平均值”的部分，方便理解阈值。</div>
   </div>
 
   <div class="panel">
@@ -445,3 +445,4 @@
 </script>
 </body>
 </html>
+
