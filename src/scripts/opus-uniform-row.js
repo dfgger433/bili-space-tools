@@ -7,7 +7,7 @@ import { createLogger } from '../shared/log.js';
 import { addStyle } from '../shared/style.js';
 import { toast } from '../shared/toast.js';
 
-const VERSION = '0.4.2';
+const VERSION = '0.4.3';
 const SCOPE = 'opus-row';
 const STYLE_ID = 'bili-tools-opus-row-style';
 const HIDE_CLASS = 'bt-opus-row-hidden';
@@ -213,10 +213,14 @@ function sourceItemsOf(container) {
 }
 
 function findSource() {
-  // 02 正在接管时让位，避免两个网格互相打架；阶段 3 应当单独启用 03。
+  // 02 正在接管时让位，避免两个网格互相打架；阶段 3 独立脚本必须让位给分页。
+  // 不能只看 opus.state.active：02 启动较晚、或者状态还没置 true 时，
+  // .bt-opus-grid / .bt-opus-pager 可能已经存在，此时 03 继续克隆会把 02 盖住，
+  // 表现为“翻页条在但点不动、部分图片不显示”。
   const W = pageWindow();
   const opus = (W.BILI_TOOLS && W.BILI_TOOLS.opus) || (window.BILI_TOOLS && window.BILI_TOOLS.opus);
   if (opus && opus.state && opus.state.active) return null;
+  if (document.querySelector('.bt-opus-grid, .bt-opus-pager')) return null;
   const found = document.querySelector('.masonry_grid_v2');
   if (!found) return null;
   let container = found.querySelector('.container');
@@ -278,13 +282,47 @@ function clampElement(item) {
   return null;
 }
 
-function restoreCloneImage(item) {
+function imageSrcCandidates(img, sourceItem) {
+  const sourceImg = sourceItem ? sourceItem.querySelector('.bili-cover-card img') : null;
+  return [
+    img.getAttribute('src'),
+    img.currentSrc,
+    img.getAttribute('data-src'),
+    img.getAttribute('data-original'),
+    sourceImg && sourceImg.currentSrc,
+    sourceImg && sourceImg.getAttribute('src'),
+    sourceImg && sourceImg.getAttribute('data-src'),
+    sourceImg && sourceImg.getAttribute('data-original'),
+  ].filter((value) => typeof value === 'string' && value && !value.startsWith('data:'));
+}
+
+function restoreCloneImage(item, sourceItem) {
   const img = item.querySelector('.bili-cover-card img');
   if (!img) return;
-  const src = img.getAttribute('src') || '';
-  if (src.includes('@')) {
-    // 原生卡片用裁剪缩略图；换成保比例的 640w 图，完整显示封面
-    img.setAttribute('src', `${src.split('@')[0]}@640w.webp`);
+  const src = imageSrcCandidates(img, sourceItem)[0] || '';
+  if (!src) return;
+
+  // 原生卡片可能还是裁剪缩略图（@430w_324h_1c）或尚未触发懒加载；
+  // 统一换回保比例 640w 图，并强制 eager 加载，避免克隆网格里出现空白封面。
+  const full = src.includes('@') ? `${src.split('@')[0]}@640w.webp` : src;
+  img.removeAttribute('srcset');
+  img.removeAttribute('sizes');
+  img.setAttribute('loading', 'eager');
+  img.setAttribute('decoding', 'async');
+  if (img.getAttribute('src') !== full) img.setAttribute('src', full);
+
+  const sourceImg = sourceItem ? sourceItem.querySelector('.bili-cover-card img') : null;
+  const fallback = sourceImg ? sourceImg.currentSrc || sourceImg.getAttribute('src') || '' : '';
+  if (fallback && fallback !== full && !img.dataset.btFallback) {
+    img.dataset.btFallback = '1';
+    img.addEventListener(
+      'error',
+      () => {
+        if (sourceImg && sourceImg.currentSrc) img.src = sourceImg.currentSrc;
+        else img.src = fallback;
+      },
+      { once: true },
+    );
   }
 }
 
@@ -352,7 +390,7 @@ function rebuild() {
         if (match) nativeRatio = `${((Number(match[2]) / Number(match[1])) * 100).toFixed(3)}%`;
       }
       if (nativeRatio) clone.dataset.btNativeRatio = nativeRatio;
-      restoreCloneImage(clone);
+      restoreCloneImage(clone, srcItem);
       grid.appendChild(clone);
       clones.push(clone);
     }
@@ -563,5 +601,6 @@ if (!previous || previous.version !== VERSION) {
 } else {
   log.debug('统一行高脚本已注入，跳过重复初始化');
 }
+
 
 

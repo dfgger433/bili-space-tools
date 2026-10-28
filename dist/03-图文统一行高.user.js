@@ -4,7 +4,7 @@
 // @name         B站图文统一行高（独立脚本）
 // @name:zh-CN   B站图文统一行高（独立脚本）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.4.2
+// @version      0.4.3
 // @description  统一所有已加载图文行高：每行自动计算平均高度，按可调的“超出比例阈值”（默认 27%，油猴菜单可设，0=停用）裁剪高于平均值的内容；不包含分页/预取。
 // @description:zh-CN 统一所有已加载图文行高：每行自动计算平均高度，按可调的“超出比例阈值”（默认 27%，油猴菜单可设，0=停用）裁剪高于平均值的内容；不包含分页/预取。
 // @author       bili-space-tools
@@ -204,7 +204,7 @@
   }
 
   // src/scripts/opus-uniform-row.js
-  var VERSION = "0.4.2";
+  var VERSION = "0.4.3";
   var SCOPE = "opus-row";
   var STYLE_ID2 = "bili-tools-opus-row-style";
   var HIDE_CLASS = "bt-opus-row-hidden";
@@ -390,6 +390,7 @@
     const W = pageWindow();
     const opus = W.BILI_TOOLS && W.BILI_TOOLS.opus || window.BILI_TOOLS && window.BILI_TOOLS.opus;
     if (opus && opus.state && opus.state.active) return null;
+    if (document.querySelector(".bt-opus-grid, .bt-opus-pager")) return null;
     const found = document.querySelector(".masonry_grid_v2");
     if (!found) return null;
     let container = found.querySelector(".container");
@@ -434,12 +435,42 @@
     if (titleAnchor) return { el: titleAnchor, base: 2, lineHeight: TITLE_LINE_HEIGHT };
     return null;
   }
-  function restoreCloneImage(item) {
+  function imageSrcCandidates(img, sourceItem) {
+    const sourceImg = sourceItem ? sourceItem.querySelector(".bili-cover-card img") : null;
+    return [
+      img.getAttribute("src"),
+      img.currentSrc,
+      img.getAttribute("data-src"),
+      img.getAttribute("data-original"),
+      sourceImg && sourceImg.currentSrc,
+      sourceImg && sourceImg.getAttribute("src"),
+      sourceImg && sourceImg.getAttribute("data-src"),
+      sourceImg && sourceImg.getAttribute("data-original")
+    ].filter((value) => typeof value === "string" && value && !value.startsWith("data:"));
+  }
+  function restoreCloneImage(item, sourceItem) {
     const img = item.querySelector(".bili-cover-card img");
     if (!img) return;
-    const src = img.getAttribute("src") || "";
-    if (src.includes("@")) {
-      img.setAttribute("src", `${src.split("@")[0]}@640w.webp`);
+    const src = imageSrcCandidates(img, sourceItem)[0] || "";
+    if (!src) return;
+    const full = src.includes("@") ? `${src.split("@")[0]}@640w.webp` : src;
+    img.removeAttribute("srcset");
+    img.removeAttribute("sizes");
+    img.setAttribute("loading", "eager");
+    img.setAttribute("decoding", "async");
+    if (img.getAttribute("src") !== full) img.setAttribute("src", full);
+    const sourceImg = sourceItem ? sourceItem.querySelector(".bili-cover-card img") : null;
+    const fallback = sourceImg ? sourceImg.currentSrc || sourceImg.getAttribute("src") || "" : "";
+    if (fallback && fallback !== full && !img.dataset.btFallback) {
+      img.dataset.btFallback = "1";
+      img.addEventListener(
+        "error",
+        () => {
+          if (sourceImg && sourceImg.currentSrc) img.src = sourceImg.currentSrc;
+          else img.src = fallback;
+        },
+        { once: true }
+      );
     }
   }
   function setCloneCoverRatio(item) {
@@ -499,7 +530,7 @@
           if (match) nativeRatio = `${(Number(match[2]) / Number(match[1]) * 100).toFixed(3)}%`;
         }
         if (nativeRatio) clone.dataset.btNativeRatio = nativeRatio;
-        restoreCloneImage(clone);
+        restoreCloneImage(clone, srcItem);
         grid.appendChild(clone);
         clones.push(clone);
       }
