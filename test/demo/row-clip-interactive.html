@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>统一行高裁剪阈值 · 互动演示</title>
+<style>
+  :root {
+    --blue: #0b64d8;
+    --blue-soft: #e8f1ff;
+    --pink: #e5484d;
+    --green: #137a3a;
+    --green-soft: #e9f8ee;
+    --red-soft: #ffe9e7;
+    --line: #e3e5e7;
+    --text: #18191c;
+    --sub: #61666d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: #f5f6f8;
+    color: var(--text);
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+    line-height: 1.6;
+    padding: 28px clamp(16px, 4vw, 56px) 60px;
+  }
+  .container { max-width: 1280px; margin: 0 auto; }
+  header { margin-bottom: 20px; }
+  h1 { font-size: clamp(22px, 3vw, 30px); margin: 0 0 6px; letter-spacing: .3px; }
+  .sub { color: var(--sub); font-size: 14px; }
+  .sub code { background: #eef0f2; padding: 1px 5px; border-radius: 4px; }
+
+  .panel {
+    background: #fff; border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 20px; box-shadow: 0 1px 2px rgba(0,0,0,.03);
+    margin-bottom: 16px;
+  }
+  .control-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .control-top h2 { margin: 0; font-size: 17px; }
+  .threshold-value {
+    margin-left: auto; color: var(--blue); font-weight: 700; font-size: 24px;
+    font-variant-numeric: tabular-nums;
+  }
+  .threshold-value small { font-size: 12px; color: var(--sub); font-weight: 400; margin-left: 4px; }
+  .slider-row { display: flex; align-items: center; gap: 14px; margin-top: 14px; }
+  input[type="range"] { flex: 1; accent-color: var(--blue); height: 28px; cursor: pointer; }
+  input[type="number"] {
+    width: 96px; padding: 7px 10px; border: 1px solid #cfd3d8; border-radius: 8px;
+    font: inherit; font-size: 15px; text-align: center; color: var(--text); background: #fff;
+  }
+  input[type="number"]:focus { outline: 2px solid #9cc3ff; border-color: var(--blue); }
+  .presets { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .chip {
+    border: 1px solid #d5d9de; background: #fff; color: #333; border-radius: 999px;
+    padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+  .chip:hover { border-color: var(--blue); color: var(--blue); }
+  .chip.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .hint { color: var(--sub); font-size: 12px; margin-top: 10px; }
+  .hint b { color: var(--pink); }
+
+  .rule-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 13.5px; }
+  .rule-grid div { color: #3b3f45; }
+  .rule-grid b { color: var(--blue); }
+  .rule-grid .warn { color: var(--pink); }
+
+  .summary-line {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--blue-soft); border: 1px solid #cfe2ff; border-radius: 10px;
+    padding: 10px 14px; font-size: 13.5px; margin-bottom: 16px;
+  }
+  .summary-line strong { color: var(--blue); }
+  .summary-line .sep { color: #9aa0a6; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: #555; margin-bottom: 14px; }
+  .legend i { display: inline-block; width: 16px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+
+  .rows { display: flex; flex-direction: column; gap: 14px; }
+  .row-card {
+    background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px 14px;
+  }
+  .row-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 2px; }
+  .row-head h3 { margin: 0; font-size: 16px; }
+  .row-head .heights { color: var(--sub); font-size: 12.5px; }
+  .row-head .badge {
+    margin-left: auto; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  }
+  .badge.ok { background: var(--green-soft); color: var(--green); }
+  .badge.bad { background: var(--red-soft); color: #b42318; }
+  .badge.off { background: #f1f3f5; color: #6b7076; }
+  .row-stats { display: flex; gap: 22px; flex-wrap: wrap; font-size: 13px; color: #4b5057; margin: 8px 0 4px; }
+  .row-stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .row-stats .cut { color: #b42318; }
+  .row-stats .orig { color: var(--green); }
+
+  .visual-wrap { display: flex; gap: 20px; align-items: flex-start; }
+  .rowbox { position: relative; flex: 1; min-height: 20px; border-bottom: 2px solid #9aa0a6; overflow: hidden; }
+  .avgline { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--pink); z-index: 4; pointer-events: none; }
+  .avgline span { position: absolute; right: 0; top: -19px; font-size: 11px; color: var(--pink); background: #fff; padding: 0 4px; }
+  .rowline { position: absolute; left: 0; right: 0; border-top: 2px solid var(--blue); z-index: 4; pointer-events: none; }
+  .rowline span { position: absolute; left: 0; top: -19px; font-size: 11px; color: var(--blue); background: #fff; padding: 0 4px; }
+  .card { position: absolute; top: 0; border-radius: 5px 5px 0 0; overflow: hidden; border: 1px solid rgba(0,0,0,.08); background: #fff; }
+  .card .cover { position: absolute; left: 0; right: 0; top: 0; background: linear-gradient(135deg,#9ec5ff,#5f92e8); }
+  .card .cover.c1 { background: linear-gradient(135deg,#ffd28f,#f3a44b); }
+  .card .cover.c2 { background: linear-gradient(135deg,#b8e7c9,#62bd85); }
+  .card .body { position: absolute; left: 0; right: 0; bottom: 0; background: #fff; padding: 3px 4px; }
+  .card .line { height: 4px; border-radius: 2px; background: #d7dbe0; margin-bottom: 3px; }
+  .card .line.short { width: 60%; }
+  .card .num { position: absolute; right: 3px; top: 3px; font-size: 10px; color: #fff; background: rgba(0,0,0,.35); padding: 1px 4px; border-radius: 3px; z-index: 2; }
+  .card .clip {
+    position: absolute; left: 0; right: 0; z-index: 3;
+    background: repeating-linear-gradient(135deg, rgba(255,120,120,.78), rgba(255,120,120,.78) 5px, rgba(255,214,214,.8) 5px, rgba(255,214,214,.8) 10px);
+  }
+  .card .clip::after {
+    content: "裁剪"; position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    font-size: 10px; color: #a01b1b; background: rgba(255,255,255,.85); padding: 1px 4px; border-radius: 3px;
+  }
+  .threshold-bar { width: 260px; flex: 0 0 260px; padding-top: 6px; }
+  .threshold-bar .label { display: flex; justify-content: space-between; font-size: 11px; color: var(--sub); margin-bottom: 5px; }
+  .threshold-bar .track { position: relative; height: 22px; background: #f1f3f5; border-radius: 5px; overflow: hidden; }
+  .threshold-bar .clipzone { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(229,72,77,.28); }
+  .threshold-bar .okzone { position: absolute; top: 0; bottom: 0; background: rgba(101,197,138,.25); }
+  .threshold-bar .marker { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--blue); }
+  .threshold-bar .marker span { position: absolute; top: -17px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--blue); white-space: nowrap; background: #fff; padding: 0 2px; }
+  .threshold-bar .verdict { margin-top: 5px; font-size: 11px; text-align: center; }
+
+  .custom-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .custom-row input[type="text"] {
+    flex: 1; min-width: 260px; padding: 8px 11px; border: 1px solid #cfd3d8; border-radius: 8px;
+    font: inherit; font-size: 13px; background: #fff;
+  }
+  .custom-row input[type="text"]:focus { outline: 2px solid #9cc3ff; border-color: var(--blue); }
+  .btn {
+    border: 1px solid #cfd3d8; background: #fff; color: #333; border-radius: 8px;
+    padding: 8px 14px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+  .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .btn:hover { filter: brightness(.97); }
+  .custom-err { color: #b42318; font-size: 12px; display: none; }
+  .custom-err.show { display: block; }
+
+  .decision-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 6px; }
+  .decision-table th, .decision-table td { border: 1px solid #eceef0; padding: 7px 8px; text-align: center; }
+  .decision-table th { background: #f7f8fa; color: #444; font-weight: 600; }
+  .decision-table td.y { background: var(--red-soft); color: #b42318; font-weight: 600; }
+  .decision-table td.n { background: var(--green-soft); color: var(--green); font-weight: 600; }
+  .decision-table td.off { background: #f7f8fa; color: #8a9099; }
+  footer { color: #8a9099; font-size: 12px; margin-top: 20px; text-align: center; }
+
+  @media (max-width: 900px) {
+    .visual-wrap { flex-direction: column; }
+    .threshold-bar { width: 100%; flex: 1 1 auto; }
+    .rule-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>统一行高：裁剪阈值互动演示</h1>
+    <div class="sub">
+      每行自动计算卡片自然高度的平均值 A；可调的是“最高卡片超出平均值的比例”。
+      输入或拖动阈值，下面会实时显示哪些行会被裁剪、裁到什么高度。
+      <code>阈值 = 0</code> 表示停用（不裁剪）。
+    </div>
+  </header>
+
+  <div class="panel">
+    <div class="control-top">
+      <h2>裁剪阈值（%）</h2>
+      <div class="threshold-value"><span id="thresholdLabel">30</span><small>%</small></div>
+    </div>
+    <div class="slider-row">
+      <input id="thresholdRange" type="range" min="0" max="100" step="1" value="30" aria-label="裁剪阈值百分比">
+      <input id="thresholdNumber" type="number" min="0" max="100" step="1" value="30" aria-label="裁剪阈值数字">
+    </div>
+    <div class="presets" id="presets"></div>
+    <div class="hint">规则：<b>超出比例 = (最高 − 平均) ÷ 平均</b>；超出比例 &gt; 阈值 → 裁剪，行高 = 平均值；≤ 阈值 → 原始内容，行高 = 最高值。<b>0 = 停用</b>。</div>
+  </div>
+
+  <div class="panel">
+    <div class="rule-grid">
+      <div><b>①</b> 行平均值 A = 该行所有卡片自然高度的平均（自动计算）。</div>
+      <div><b>②</b> 超出比例 = (最高 M − A) ÷ A × 100%。</div>
+      <div><b>③</b> 超出比例 ≤ 阈值：差距不大，行高 = M，原始内容。</div>
+      <div><b>④</b> 超出比例 &gt; 阈值：行高 = A，只裁掉高于 A 的底部。</div>
+      <div><b>⑤</b> 阈值 = 0：停用，不做任何裁剪。</div>
+      <div class="warn">低于 A 的卡片保留原始内容，行高为 A 时下方留白，不再强行展开文字。</div>
+    </div>
+  </div>
+
+  <div class="summary-line" id="summary"></div>
+  <div class="legend">
+    <span><i style="background:#cfe3ff;border:1px solid #7fb0f5"></i>卡片原始内容</span>
+    <span><i style="background:repeating-linear-gradient(135deg,#ffb3b3,#ffb3b3 4px,#ffdede 4px,#ffdede 8px);border:1px solid #e86b6b"></i>高于平均值被裁剪</span>
+    <span><i style="background:transparent;border-top:2px dashed #e5484d;height:0"></i>平均值线 A</span>
+    <span><i style="background:transparent;border-top:2px solid #0b64d8;height:0"></i>最终行高</span>
+  </div>
+
+  <div class="rows" id="rows"></div>
+
+  <div class="panel" style="margin-top:16px">
+    <h2 style="margin:0 0 4px;font-size:17px">测试你自己的行</h2>
+    <div class="sub" style="margin-bottom:0">输入一组卡片自然高度（px），用逗号或空格分隔，例如 <code>190,260,320,470,620</code>。会追加一行“自定义”。</div>
+    <div class="custom-row">
+      <input id="customInput" type="text" placeholder="190,260,320,470,620" aria-label="自定义卡片高度">
+      <button class="btn primary" id="customAdd" type="button">测试这一行</button>
+      <button class="btn" id="customClear" type="button">清除自定义</button>
+    </div>
+    <div class="custom-err" id="customErr">请输入 1–12 个大于 0 的数字（px）。</div>
+  </div>
+
+  <div class="panel">
+    <h2 style="margin:0 0 4px;font-size:17px">当前阈值决策表</h2>
+    <div class="sub" style="margin-bottom:10px">“裁”= 行高取该行平均值；“原”= 保留原始行高。</div>
+    <table class="decision-table" id="decisionTable"></table>
+  </div>
+
+  <footer>演示页只做计算，不会修改脚本；选定阈值后告诉我，我再写进统一行高脚本。</footer>
+</div>
+
+<script>
+  const BASE_ROWS = [
+    { id: 'A', name: '高竖图行', heights: [190, 260, 320, 470, 620] },
+    { id: 'B', name: '普通行（差距小）', heights: [300, 310, 330, 350, 360] },
+    { id: 'C', name: '中等差距行', heights: [220, 260, 300, 340, 380] },
+    { id: 'D', name: '极端竖图行', heights: [180, 220, 300, 520, 650] },
+  ];
+  const state = {
+    threshold: 30,
+    rows: BASE_ROWS.map((r) => ({ ...r, heights: [...r.heights] })),
+    custom: null,
+  };
+
+  const $ = (sel) => document.querySelector(sel);
+  const avg = (hs) => hs.reduce((a, b) => a + b, 0) / hs.length;
+  const max = (hs) => Math.max(...hs);
+  const excess = (hs) => (max(hs) - avg(hs)) / avg(hs) * 100;
+  const clipped = (hs) => state.threshold > 0 && excess(hs) > state.threshold;
+  const rowHeight = (hs) => (clipped(hs) ? avg(hs) : max(hs));
+
+  function setThreshold(value, source) {
+    let v = Number(value);
+    if (!Number.isFinite(v)) v = 0;
+    v = Math.max(0, Math.min(100, Math.round(v)));
+    state.threshold = v;
+    $('#thresholdRange').value = String(v);
+    $('#thresholdNumber').value = String(v);
+    $('#thresholdLabel').textContent = String(v);
+    for (const chip of document.querySelectorAll('.preset')) {
+      chip.classList.toggle('active', Number(chip.dataset.value) === v);
+    }
+    render();
+  }
+
+  function renderPresets() {
+    const wrap = $('#presets');
+    wrap.innerHTML = '';
+    for (const v of [0, 10, 20, 25, 30, 40, 50, 60, 75, 100]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip preset' + (v === state.threshold ? ' active' : '');
+      b.dataset.value = String(v);
+      b.textContent = v === 0 ? '0（停用）' : v + '%';
+      b.addEventListener('click', () => setThreshold(v, 'preset'));
+      wrap.appendChild(b);
+    }
+  }
+
+  function cardColor(i) {
+    return ['', 'c1', 'c2', '', 'c1', 'c2', '', 'c1'][i % 8];
+  }
+
+  function visualRow(row, maxWidth = 620) {
+    const hs = row.heights;
+    const A = avg(hs), M = max(hs), R = rowHeight(hs), cut = clipped(hs);
+    const scale = Math.min(0.42, 250 / M);
+    const visMax = Math.max(40, Math.round(M * scale));
+    const box = document.createElement('div');
+    box.className = 'rowbox';
+    box.style.height = (visMax + 20) + 'px';
+    const gap = 8;
+    const cw = Math.max(42, Math.min(84, Math.floor((maxWidth - gap * (hs.length - 1)) / hs.length)));
+    const totalW = cw * hs.length + gap * (hs.length - 1);
+    const left0 = Math.max(0, Math.round((maxWidth - totalW) / 2));
+    hs.forEach((h, i) => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.style.left = (left0 + i * (cw + gap)) + 'px';
+      card.style.width = cw + 'px';
+      card.style.height = Math.round(h * scale) + 'px';
+      const coverH = Math.round(h * 0.78);
+      const cover = document.createElement('div');
+      cover.className = 'cover ' + cardColor(i);
+      cover.style.height = coverH + 'px';
+      card.appendChild(cover);
+      const body = document.createElement('div');
+      body.className = 'body';
+      body.style.height = Math.max(6, h - coverH) + 'px';
+      body.innerHTML = '<div class="line"></div><div class="line short"></div>';
+      card.appendChild(body);
+      const num = document.createElement('div');
+      num.className = 'num';
+      num.textContent = h + '';
+      card.appendChild(num);
+      if (cut && h > A) {
+        const c = document.createElement('div');
+        c.className = 'clip';
+        c.style.top = Math.round(A * scale) + 'px';
+        c.style.height = Math.max(1, Math.round((h - A) * scale)) + 'px';
+        card.appendChild(c);
+      }
+      box.appendChild(card);
+    });
+    const avgLine = document.createElement('div');
+    avgLine.className = 'avgline';
+    avgLine.style.top = Math.round(A * scale) + 'px';
+    avgLine.innerHTML = '<span>平均 A = ' + A.toFixed(1) + 'px</span>';
+    box.appendChild(avgLine);
+    const rowLine = document.createElement('div');
+    rowLine.className = 'rowline';
+    rowLine.style.top = Math.round(R * scale) + 'px';
+    rowLine.innerHTML = '<span>行高 = ' + R.toFixed(1) + 'px</span>';
+    box.appendChild(rowLine);
+    return { box, A, M, E: excess(hs), R, cut };
+  }
+
+  function thresholdBar(row) {
+    const E = excess(row.heights);
+    const bar = document.createElement('div');
+    bar.className = 'threshold-bar';
+    const t = state.threshold;
+    const clippedNow = clipped(row.heights);
+    bar.innerHTML =
+      '<div class="label"><span>0%</span><span>超出 ' + E.toFixed(1) + '%</span><span>100%</span></div>' +
+      '<div class="track">' +
+        '<div class="clipzone" style="width:' + Math.min(100, E).toFixed(2) + '%"></div>' +
+        '<div class="okzone" style="left:' + Math.min(100, E).toFixed(2) + '%;right:0"></div>' +
+        '<div class="marker" style="left:' + t.toFixed(2) + '%"><span>阈值 ' + t + '%</span></div>' +
+      '</div>' +
+      '<div class="verdict ' + (clippedNow ? 'bad' : 'ok') + '">' + (t === 0 ? '停用：不裁剪' : clippedNow ? '超出比例 > 阈值：裁剪' : '超出比例 ≤ 阈值：原始') + '</div>';
+    return bar;
+  }
+
+  function renderRows() {
+    const wrap = $('#rows');
+    wrap.innerHTML = '';
+    for (const row of state.rows) {
+      const hs = row.heights;
+      const A = avg(hs), M = max(hs), E = excess(hs), R = rowHeight(hs), cut = clipped(hs);
+      const card = document.createElement('div');
+      card.className = 'row-card';
+      card.innerHTML =
+        '<div class="row-head"><h3>' + row.id + '. ' + row.name + '</h3>' +
+        '<span class="heights">自然高度：' + hs.join(' / ') + 'px</span>' +
+        '<span class="badge ' + (state.threshold === 0 ? 'off' : cut ? 'bad' : 'ok') + '">' +
+          (state.threshold === 0 ? '停用：不裁剪' : cut ? '裁剪到平均值' : '原始内容') +
+        '</span></div>' +
+        '<div class="row-stats">' +
+          '<span>平均 A = <b>' + A.toFixed(1) + 'px</b></span>' +
+          '<span>最高 M = <b>' + M + 'px</b></span>' +
+          '<span>超出比例 = <b>' + E.toFixed(1) + '%</b></span>' +
+          '<span>最终行高 = <b class="' + (cut ? 'cut' : 'orig') + '">' + R.toFixed(1) + 'px</b></span>' +
+          (cut ? '<span class="cut">裁掉 ' + (M - A).toFixed(1) + 'px（最高卡）</span>' : '') +
+        '</div>';
+      const visual = document.createElement('div');
+      visual.className = 'visual-wrap';
+      const v = visualRow(row);
+      visual.appendChild(v.box);
+      visual.appendChild(thresholdBar(row));
+      card.appendChild(visual);
+      wrap.appendChild(card);
+    }
+  }
+
+  function renderSummary() {
+    const clippedRows = state.rows.filter((r) => clipped(r.heights));
+    const originalRows = state.rows.filter((r) => !clipped(r.heights));
+    const summary = $('#summary');
+    if (state.threshold === 0) {
+      summary.innerHTML = '<strong>阈值 0%：已停用平均值计算/裁剪。</strong> 所有行都显示原始内容（行高 = 该行最高卡片）。';
+      return;
+    }
+    summary.innerHTML =
+      '<strong>当前阈值 ' + state.threshold + '%</strong>' +
+      '<span class="sep">|</span>受影响行：' + clippedRows.length + ' / ' + state.rows.length +
+      '<span class="sep">|</span>裁剪：' + (clippedRows.map((r) => r.id).join('、') || '无') +
+      '<span class="sep">|</span>保留原始：' + (originalRows.map((r) => r.id).join('、') || '无');
+  }
+
+  function renderTable() {
+    const table = $('#decisionTable');
+    let html = '<thead><tr><th>行 / 超出比例</th><th>最高 M</th><th>平均 A</th><th>是否裁剪</th><th>最终行高</th></tr></thead><tbody>';
+    for (const row of state.rows) {
+      const hs = row.heights;
+      const A = avg(hs), M = max(hs), E = excess(hs), cut = clipped(hs), R = rowHeight(hs);
+      const cls = state.threshold === 0 ? 'off' : cut ? 'y' : 'n';
+      html += '<tr><th>' + row.id + ' · ' + E.toFixed(1) + '%</th><td>' + M + '</td><td>' + A.toFixed(1) +
+        '</td><td class="' + cls + '">' + (state.threshold === 0 ? '停用' : cut ? '裁' : '原') +
+        '</td><td>' + R.toFixed(1) + ' px</td></tr>';
+    }
+    html += '</tbody>';
+    table.innerHTML = html;
+  }
+
+  function render() {
+    renderSummary();
+    renderRows();
+    renderTable();
+  }
+
+  function parseCustom(text) {
+    const parts = String(text).split(/[,，\s]+/).filter(Boolean).map(Number);
+    if (!parts.length || parts.length > 12) return null;
+    if (parts.some((n) => !Number.isFinite(n) || n <= 0 || n > 2000)) return null;
+    return parts.map((n) => Math.round(n));
+  }
+
+  $('#thresholdRange').addEventListener('input', (e) => setThreshold(e.target.value, 'range'));
+  $('#thresholdNumber').addEventListener('input', (e) => setThreshold(e.target.value, 'number'));
+  $('#thresholdNumber').addEventListener('blur', (e) => setThreshold(e.target.value, 'number'));
+
+  $('#customAdd').addEventListener('click', () => {
+    const hs = parseCustom($('#customInput').value);
+    const err = $('#customErr');
+    if (!hs) {
+      err.classList.add('show');
+      return;
+    }
+    err.classList.remove('show');
+    state.custom = { id: 'X', name: '自定义行', heights: hs };
+    state.rows = [...BASE_ROWS.map((r) => ({ ...r, heights: [...r.heights] })), state.custom];
+    render();
+  });
+  $('#customClear').addEventListener('click', () => {
+    state.custom = null;
+    state.rows = BASE_ROWS.map((r) => ({ ...r, heights: [...r.heights] }));
+    $('#customInput').value = '';
+    $('#customErr').classList.remove('show');
+    render();
+  });
+
+  renderPresets();
+  setThreshold(30, 'init');
+</script>
+</body>
+</html>
