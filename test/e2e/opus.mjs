@@ -33,7 +33,8 @@ async function findBrowser() {
   throw new Error('未找到 Chrome/Edge，可用 BILI_TEST_BROWSER 指定路径');
 }
 
-async function openPage(browser, base, query = '', scriptPath = SCRIPT) {
+async function openPage(browser, base, query = '', options = {}) {
+  const { withRow = false } = options;
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
   const errors = [];
@@ -78,7 +79,8 @@ async function openPage(browser, base, query = '', scriptPath = SCRIPT) {
     window.unsafeWindow = window;
   });
   // 用 addInitScript 模拟 document-start 注入（脚本需要提前装接口观察器）
-  await page.addInitScript({ path: scriptPath });
+  await page.addInitScript({ path: SCRIPT });
+  if (withRow) await page.addInitScript({ path: ROW_SCRIPT });
   await page.goto(`${base}/631063962/upload/opus${query}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.BILI_TOOLS?.opus?.active === true, null, { timeout: 25000 });
   await page.waitForTimeout(500);
@@ -338,12 +340,23 @@ async function runVueBlockedTest(browser, base) {
 }
 
 async function runUniformRowsTest(browser, base) {
-  console.log('--- 统一行高（阶段 3） ---');
-  const { context, page, errors } = await openPage(browser, base, '', ROW_SCRIPT);
+  console.log('--- 独立统一行高脚本（02 + 03） ---');
+  const { context, page, errors } = await openPage(browser, base, '', { withRow: true });
+  await page.waitForFunction(() => window.BILI_TOOLS?.row?.state?.active === true, null, { timeout: 15000 });
+  await page.waitForFunction(
+    () => document.querySelectorAll('.bt-opus-grid.bt-opus-uniform').length === 1,
+    null,
+    { timeout: 15000 },
+  );
+  await page.waitForTimeout(900);
   const st = await opusState(page);
-  assert.equal(st.active, true);
+  assert.equal(st.active, true, '02 分页脚本应在运行');
   assert.equal(await itemCount(page), 20);
-  assert.equal(await page.locator('.bt-opus-grid.bt-opus-rows').count(), 1, '应使用行模式网格');
+  assert.equal(await page.locator('.bt-opus-pager').count(), 1, '03 不应重复创建分页条');
+  const rowState = await page.evaluate(() => window.BILI_TOOLS.row.state);
+  assert.equal(rowState.items, 20);
+  assert.equal(rowState.columns, st.columns);
+  assert.ok(rowState.rows >= 1);
 
   const readRows = () =>
     page.evaluate(() => {

@@ -85,17 +85,13 @@ function buildCoverCard(item, options = {}) {
     className: 'opus-card__title',
     attrs: { href, target: '_blank', rel: 'noopener noreferrer' },
   });
-  // 行高有富余时展开标题的省略行，把原本被裁掉的文字显示出来（标题行高 16.8px）
-  const extraLines = options.extraHeight > 0 ? Math.floor(options.extraHeight / 16.8) : 0;
-  const titleTextStyle =
-    extraLines > 0 ? { '-webkit-line-clamp': String(2 + Math.min(20, extraLines)) } : undefined;
-  titleEl.appendChild(create('div', { className: 'bt-opus-title-text', text: title, style: titleTextStyle }));
+  titleEl.appendChild(create('div', { className: 'bt-opus-title-text', text: title }));
   section.appendChild(titleEl);
 
   return section;
 }
 
-function buildTextCard(item, options = {}) {
+function buildTextCard(item) {
   const view = item.view || {};
   const href = normalizeHref(view.jump_url);
   const title = view.content || '';
@@ -113,11 +109,7 @@ function buildTextCard(item, options = {}) {
     link.appendChild(badgeEl);
   }
   const textWrap = create('div', { className: 'opus-card__text' });
-  // 正文行高 20px；用行高富余展开被裁掉的正文
-  const extraLines = options.extraHeight > 0 ? Math.floor(options.extraHeight / 20) : 0;
-  const textStyle =
-    extraLines > 0 ? { '-webkit-line-clamp': String(3 + Math.min(20, extraLines)) } : undefined;
-  textWrap.appendChild(create('div', { className: 'bt-opus-text-clamp', text: title, style: textStyle }));
+  textWrap.appendChild(create('div', { className: 'bt-opus-text-clamp', text: title }));
   link.appendChild(textWrap);
   section.appendChild(link);
 
@@ -136,7 +128,7 @@ export function buildOpusCard(item, options = {}) {
     className: 'opus-card',
     attrs: { 'data-bt-key': item.key || '' },
   });
-  root.appendChild(item.cover && item.cover.src ? buildCoverCard(item, options) : buildTextCard(item, options));
+  root.appendChild(item.cover && item.cover.src ? buildCoverCard(item, options) : buildTextCard(item));
 
   const view = item.view || {};
   const meta = [view.author, view.pub_time].filter(Boolean).join(' · ');

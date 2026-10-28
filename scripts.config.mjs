@@ -28,10 +28,6 @@ export const scripts = [
     id: 'opus-pagination',
     entry: 'src/scripts/opus-pagination.js',
     outfile: 'dist/02-图文翻页.user.js',
-    define: {
-      __BT_UNIFORM_ROWS__: 'false',
-      __BT_VERSION__: '"0.4.0"',
-    },
     meta: {
       name: 'B站图文翻页（每页20条）',
       nameZh: 'B站图文翻页（每页20条）',
@@ -60,19 +56,15 @@ export const scripts = [
   },
   {
     id: 'opus-uniform-row',
-    entry: 'src/scripts/opus-pagination.js',
+    entry: 'src/scripts/opus-uniform-row.js',
     outfile: 'dist/03-图文统一行高.user.js',
-    define: {
-      __BT_UNIFORM_ROWS__: 'true',
-      __BT_VERSION__: '"0.5.1"',
-    },
     meta: {
-      name: 'B站图文统一行高（每页20条）',
-      nameZh: 'B站图文统一行高（每页20条）',
+      name: 'B站图文统一行高（独立脚本）',
+      nameZh: 'B站图文统一行高（独立脚本）',
       namespace: 'https://github.com/bili-space-tools/bili-space-tools',
-      version: '0.5.1',
-      description: '在图文翻页（每页 20 条）基础上，同一行卡片高度统一为该行最高卡片；封面按行统一高度并裁剪填充，标题起始线对齐；保留原生自动加载预取与图片压缩菜单。',
-      descriptionZh: '在图文翻页（每页 20 条）基础上，同一行卡片高度统一为该行最高卡片；封面按行统一高度并裁剪填充，标题起始线对齐；保留原生自动加载预取与图片压缩菜单。',
+      version: '0.1.0',
+      description: '依赖“B站图文翻页”脚本的网格，只统一每行卡片高度并展开被省略的文字；不包含分页/菜单/预取。',
+      descriptionZh: '依赖“B站图文翻页”脚本的网格，只统一每行卡片高度并展开被省略的文字；不包含分页/菜单/预取。',
       author: 'bili-space-tools',
       license: 'MIT',
       icon: 'https://www.bilibili.com/favicon.ico',
@@ -80,20 +72,9 @@ export const scripts = [
         '*://*.bilibili.com/*/upload/opus',
         '*://*.bilibili.com/*/upload/opus/*',
       ],
-      runAt: 'document-start',
-      grants: [
-        'unsafeWindow',
-        'GM_registerMenuCommand',
-        'GM_unregisterMenuCommand',
-        'GM_getValue',
-        'GM_setValue',
-      ],
+      runAt: 'document-idle',
+      grants: ['none'],
       noframes: true,
     },
   },
 ];
-
-
-
-
-

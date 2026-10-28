@@ -11,7 +11,6 @@ import { PAGE_SIZE, DEFAULT_COLUMN_GUTTER, DEFAULT_ROW_GUTTER, coverDisplaySrc }
 import {
   computeColumnWidth,
   columnsForWidth,
-  layoutRows,
   layoutWaterfall,
   totalPages,
 } from '../opus/layout.js';
@@ -25,8 +24,7 @@ import {
   findWaterfall,
 } from '../opus/adapter.js';
 
-const UNIFORM_ROWS = typeof __BT_UNIFORM_ROWS__ !== 'undefined' && Boolean(__BT_UNIFORM_ROWS__);
-const VERSION = typeof __BT_VERSION__ !== 'undefined' ? String(__BT_VERSION__) : '0.4.0';
+const VERSION = '0.4.0';
 const SCOPE = 'opus';
 const STYLE_ID = 'bili-tools-opus-style';
 const ACTIVE_CLASS = 'bili-tools-opus-active';
@@ -62,10 +60,6 @@ const state = {
   gridEl: null,
   pager: null,
   settings: loadSettings(),
-  // 阶段 3：图片真实宽高（key → {naturalWidth, naturalHeight}），用于按原始比例显示封面
-  actualCovers: new Map(),
-  coverLoadBound: false,
-  layoutFixTimer: null,
   routeKey: '',
   nextBootAt: 0,
   observer: null,
@@ -84,13 +78,6 @@ const CSS = `
 .bt-opus-title-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;line-break:anywhere}
 .bt-opus-text-clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;line-break:anywhere;white-space:pre-wrap}
 .bt-opus-item .opus-card{width:100%}
-/* 阶段 3：统一行高（行高 = 该行最高卡片；封面保持原始比例，不裁剪；剩余高度显示被省略的文字） */
-.bt-opus-rows .bt-opus-item .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
-.bt-opus-rows .bt-opus-item .bili-cover-card{overflow:hidden}
-.bt-opus-rows .bt-opus-item .bili-cover-card__thumbnail{height:100%}
-.bt-opus-rows .bt-opus-item .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
-.bt-opus-rows .bt-opus-item .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
-.bt-opus-rows .bt-opus-item .opus-card--only-text .opus-card__icons{margin-top:auto}
 .bt-opus-pager{margin:8px auto 24px}
 .bt-opus-pager .vui_pagenation--btn-side.vui_button--disabled,
 .bt-opus-pager .vui_pagenation--btn-more.vui_button--disabled{display:none}
@@ -245,18 +232,6 @@ function ensureWrap() {
     state.gridEl = create('div', { className: 'bt-opus-grid' });
     state.wrapEl.appendChild(state.gridEl);
   }
-  if (UNIFORM_ROWS && !state.coverLoadBound) {
-    state.coverLoadBound = true;
-    // 图片加载后拿到真实宽高，重新按原始比例排版（只冒泡到 capture 阶段）
-    state.gridEl.addEventListener(
-      'load',
-      (event) => {
-        const img = event.target;
-        if (img && img.tagName === 'IMG') onCoverImageLoad(img);
-      },
-      true,
-    );
-  }
   const parent = feed.parentElement;
   if (parent && (state.wrapEl.parentElement !== parent || state.wrapEl.previousElementSibling !== feed)) {
     parent.insertBefore(state.wrapEl, feed.nextSibling);
@@ -396,7 +371,6 @@ function refresh(force = false) {
   }
   if (loaded < state.lastLoaded) state.page = 1;
   state.items = items;
-  applyActualCoverSizes(items);
   state.loaded = loaded;
   state.lastLoaded = loaded;
   state.cw = layout.columnWidth;
@@ -435,49 +409,6 @@ function preloadCovers(items) {
   }
 }
 
-/** 用图片真实宽高替换接口里的估算值：封面保持原始比例，行高也按真实高度计算 */
-function applyActualCoverSizes(items) {
-  if (!UNIFORM_ROWS) return;
-  for (const item of items) {
-    if (!item || !item.cover || !(item.cover.width > 0)) continue;
-    const actual = state.actualCovers.get(item.key);
-    if (!actual || !actual.naturalWidth) continue;
-    const textHeight = Math.max(
-      0,
-      (Number(item.height) || 0) - (Number(item.cover.height) || 0),
-    );
-    const coverHeight = (item.cover.width * actual.naturalHeight) / actual.naturalWidth;
-    item.cover.height = coverHeight;
-    item.cover.naturalWidth = actual.naturalWidth;
-    item.cover.naturalHeight = actual.naturalHeight;
-    item.height = textHeight + coverHeight;
-  }
-}
-
-function onCoverImageLoad(img) {
-  if (!UNIFORM_ROWS || !state.active) return;
-  const card = img.closest('.opus-card');
-  const key = card && card.getAttribute('data-bt-key');
-  if (!key || !img.naturalWidth || !img.naturalHeight) return;
-  const prev = state.actualCovers.get(key);
-  if (
-    prev &&
-    prev.naturalWidth === img.naturalWidth &&
-    prev.naturalHeight === img.naturalHeight
-  ) {
-    return;
-  }
-  state.actualCovers.set(key, {
-    naturalWidth: img.naturalWidth,
-    naturalHeight: img.naturalHeight,
-  });
-  if (state.layoutFixTimer) clearTimeout(state.layoutFixTimer);
-  state.layoutFixTimer = setTimeout(() => {
-    state.layoutFixTimer = null;
-    if (state.active) refresh(true);
-  }, 120);
-}
-
 function currentSlice() {
   let page = state.page;
   let start = (page - 1) * PAGE_SIZE;
@@ -507,41 +438,27 @@ function maybeRender(force = false) {
 function renderGrid(slice) {
   const grid = state.gridEl;
   if (!grid) return;
-  const layout = UNIFORM_ROWS
-    ? layoutRows(slice, {
-        columnWidth: state.cw,
-        columns: state.columns,
-        rowGutter: DEFAULT_ROW_GUTTER,
-        columnGutter: DEFAULT_COLUMN_GUTTER,
-      })
-    : layoutWaterfall(slice, {
-        columnWidth: state.cw,
-        columns: state.columns,
-        rowGutter: DEFAULT_ROW_GUTTER,
-        columnGutter: DEFAULT_COLUMN_GUTTER,
-      });
-  grid.classList.toggle('bt-opus-rows', UNIFORM_ROWS);
+  const layout = layoutWaterfall(slice, {
+    columnWidth: state.cw,
+    columns: state.columns,
+    rowGutter: DEFAULT_ROW_GUTTER,
+    columnGutter: DEFAULT_COLUMN_GUTTER,
+  });
   grid.style.width = `${layout.width}px`;
   grid.style.height = `${layout.height}px`;
   const frag = document.createDocumentFragment();
   slice.forEach((item, index) => {
     const pos = layout.positions[index] || { left: 0, top: 0 };
-    const itemHeight = Math.max(0, pos.height || item.height);
-    // 行高富余时把标题/正文的省略行展开（没内容可展示就留白）
-    const extra = Math.max(0, itemHeight - (Number(item.height) || 0));
     const el = create('div', {
       className: 'bt-opus-item',
       style: {
         width: `${state.cw}px`,
-        height: `${itemHeight}px`,
+        height: `${Math.max(0, item.height)}px`,
         transform: `translate(${pos.left}px, ${pos.top}px)`,
       },
     });
     el.appendChild(
-      buildOpusCard(item, {
-        compressImages: Boolean(state.settings.compressImages),
-        extraHeight: extra,
-      }),
+      buildOpusCard(item, { compressImages: Boolean(state.settings.compressImages) }),
     );
     frag.appendChild(el);
   });
@@ -735,10 +652,6 @@ function teardown() {
     clearTimeout(state.resizeTimer);
     state.resizeTimer = null;
   }
-  if (state.layoutFixTimer) {
-    clearTimeout(state.layoutFixTimer);
-    state.layoutFixTimer = null;
-  }
   if (state.pager) {
     state.pager.destroy();
     state.pager = null;
@@ -764,7 +677,6 @@ function teardown() {
     tab: '',
     busy: false,
     busyText: '',
-    coverLoadBound: false,
     renderKey: '',
     feedEl: null,
     opusEl: null,
