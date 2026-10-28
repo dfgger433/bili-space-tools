@@ -207,6 +207,9 @@ const build = (view) => {
   图文卡片使用 `@640w.webp`，并提供“图片压缩”开关允许切换回原图。
 - “图片压缩”开关放在 Tampermonkey 扩展菜单：需要 `GM_registerMenuCommand`（`GM_unregisterMenuCommand` 用于更新文案），
   同时声明 `@sandbox raw` 让脚本继续运行在页面上下文，否则读不到页面的 Vue 实例 / 不能拦截 XHR。
+- 2026-10-28 实测发现：主脚本一旦申请 GM 权限，Firefox 下油猴仍可能把脚本放进受限上下文，访问 `#app.__vue_app__` / `_vnode` 会抛错；
+  而旧版 activate 在确认数据通道前就加了隐藏原生 feed 的 class，异常后整页空白。结论（v0.3.0）：主脚本保持 `@grant none`，
+  菜单拆到配套脚本；主脚本激活改为 fail-safe（先确认通道，Vue 访问失败回退抓包，渲染失败回滚原生页面）。
 
 
 ### 3.4 卡片 DOM / CSS（原生）

@@ -58,7 +58,7 @@
 - 接管渲染：给 `.opus` 加 `.bili-tools-opus-active` 隐藏原生 `.opus-feed`（保留其数据/请求/滚动逻辑），在 `.opus-body` 的 feed 后插入自己的网格；卡片用原生 class 重建（`src/opus/cards.js`）。
 - 布局复刻原生 `WaterfallGrid`（`src/opus/layout.js`）：列宽公式、前 10 条行优先 + 之后最短列、容器高度；窗口缩放按原生公式重排。
 - 预取：滚到底触发原生加载的 20 条不会渲染进当前页（渲染 key 只看当前页切片），分页条位置不变；点下一页即时打开。
-- 封面使用 B 站图床缩略图（`@640w.webp`），并提供“图片压缩”开关：在 Tampermonkey 扩展菜单里切换（`GM_registerMenuCommand`，默认开、localStorage 持久化、关闭时加载原图）；页面内不显示开关。
+- 封面使用 B 站图床缩略图（`@640w.webp`），并提供“图片压缩”开关：由配套脚本 `00-图文翻页菜单.user.js` 注册到 Tampermonkey 扩展菜单（`GM_registerMenuCommand`），主脚本保持 `@grant none` 页面上下文，读写同一个 `localStorage` 键；页面内不显示开关。
 - 分页条放 `.opus-footer`，复用 `src/shared/pager.js`；跳页需要时顺序加载（`onLoadMore`），远跳先确认；切 tab/刷新回第 1 页。
 - 两通道都失败时完全不接管；`ERROR/PAUSED` 允许重试；重复注入只保留首个实例的调试入口。
 - 复用 `src/shared/`：`pager.js`、`dom.js`、`log.js`、`style.js`、`toast.js`（均已通过阶段 1 测试）。
@@ -86,5 +86,6 @@
 - 每个交付脚本都带完整 UserScript 头；安装新阶段时禁用上一阶段即可。
 - 调试：`window.BILI_TOOLS` 暴露状态与自检；`localStorage["biliTools:debug"]="1"` 打日志。
 - 测试：`node --test` 单元测试 + `playwright-core`（本机 Chrome）假页 e2e + 截图；真实登录场景由用户实测。
+
 
 

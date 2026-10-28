@@ -9,6 +9,7 @@ import { startServer } from './server.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
 const SCRIPT = path.join(ROOT, 'dist', '02-图文翻页.user.js');
+const MENU_SCRIPT = path.join(ROOT, 'dist', '00-图文翻页菜单.user.js');
 const SHOTS = path.join(ROOT, 'test', 'screenshots');
 
 const CANDIDATES = [
@@ -68,6 +69,8 @@ async function openPage(browser, base, query = '') {
   });
   // 用 addInitScript 模拟 document-start 注入（脚本需要提前装接口观察器）
   await page.addInitScript({ path: SCRIPT });
+  // 配套菜单脚本（只注册油猴菜单、写 localStorage）
+  await page.addInitScript({ path: MENU_SCRIPT });
   await page.goto(`${base}/631063962/upload/opus${query}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.BILI_TOOLS?.opus?.active === true, null, { timeout: 25000 });
   await page.waitForTimeout(500);
@@ -280,9 +283,12 @@ async function runCompressionToggleTest(browser, base) {
   assert.deepEqual(await menuNames(), ['图片压缩：开'], '油猴菜单应显示“图片压缩：开”');
   assert.equal((await opusState(page)).compressImages, true);
 
-  // 通过油猴菜单关闭压缩
+  // 通过配套菜单脚本关闭压缩
   await clickMenu();
-  await page.waitForTimeout(500);
+  await page
+    .waitForFunction(() => window.BILI_TOOLS?.opus?.state?.compressImages === false, null, { timeout: 4000 })
+    .catch(() => {});
+  await page.waitForTimeout(300);
   src = await firstImgSrc();
   assert.doesNotMatch(src, /@640w\.webp/, '关闭后应加载原图');
   assert.deepEqual(await menuNames(), ['图片压缩：关'], '菜单文案应更新为关');
@@ -298,13 +304,29 @@ async function runCompressionToggleTest(browser, base) {
 
   // 再次通过菜单开启
   await clickMenu();
-  await page.waitForTimeout(500);
+  await page
+    .waitForFunction(() => window.BILI_TOOLS?.opus?.state?.compressImages === true, null, { timeout: 4000 })
+    .catch(() => {});
+  await page.waitForTimeout(300);
   src = await firstImgSrc();
   assert.match(src, /@640w\.webp$/, '重新开启后应加载压缩图');
   assert.deepEqual(await menuNames(), ['图片压缩：开'], '菜单文案应更新为开');
   assert.deepEqual(errors, [], '不应有未捕获异常');
   await context.close();
   console.log('油猴菜单图片压缩开关测试通过');
+}
+
+async function runVueBlockedTest(browser, base) {
+  console.log('--- 页面 Vue 访问被阻止时回退抓包 ---');
+  const { context, page, errors } = await openPage(browser, base, '?throwvue=1');
+  const st = await opusState(page);
+  assert.equal(st.adapter, 'network', 'Vue expando 抛错时应回退到网络抓包');
+  assert.equal(st.active, true);
+  assert.equal(await itemCount(page), 20, '回退后仍应渲染 20 张卡片');
+  assert.equal(await page.locator('.bt-opus-wrap').count(), 1, '应正常接管而不是隐藏后空白');
+  assert.deepEqual(errors, [], '回退过程不应有未捕获异常');
+  await context.close();
+  console.log('Vue 访问失败回退测试通过');
 }
 
 async function main() {
@@ -317,6 +339,7 @@ async function main() {
     await runVueTest(browser, server.url);
     await runNetworkTest(browser, server.url);
     await runCompressionToggleTest(browser, server.url);
+    await runVueBlockedTest(browser, server.url);
   } finally {
     await browser.close();
     await server.close();
@@ -328,3 +351,4 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+

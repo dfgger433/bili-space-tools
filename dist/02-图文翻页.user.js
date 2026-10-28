@@ -4,7 +4,7 @@
 // @name         B站图文翻页（每页20条）
 // @name:zh-CN   B站图文翻页（每页20条）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.2.0
+// @version      0.3.0
 // @description  把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式；图片压缩开关在油猴扩展菜单。
 // @description:zh-CN 把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式；图片压缩开关在油猴扩展菜单。
 // @author       bili-space-tools
@@ -13,9 +13,7 @@
 // @match        *://*.bilibili.com/*/upload/opus
 // @match        *://*.bilibili.com/*/upload/opus/*
 // @run-at       document-start
-// @grant        GM_registerMenuCommand
-// @grant        GM_unregisterMenuCommand
-// @sandbox      raw
+// @grant        none
 // @noframes
 // ==/UserScript==
 
@@ -895,11 +893,21 @@
   function getVueApp() {
     const candidates = [document.getElementById("app"), document.querySelector("[data-v-app]")];
     for (const el of candidates) {
-      if (el && el.__vue_app__) return el.__vue_app__;
+      try {
+        if (el && el.__vue_app__) return el.__vue_app__;
+      } catch {
+      }
     }
     return null;
   }
   function findWaterfall(app) {
+    try {
+      return findWaterfallUnsafe(app);
+    } catch {
+      return null;
+    }
+  }
+  function findWaterfallUnsafe(app) {
     if (!app) return null;
     const containerCandidates = [
       app._container,
@@ -975,16 +983,28 @@
     const inst = findWaterfall(app);
     const vueReady = Boolean(inst && Array.isArray(inst.props.list) && inst.props.list.length > 0);
     if (vueReady) {
-      log.info("数据通道：Vue 实例（WaterfallGrid）");
-      return createVueAdapter(inst, capture2);
+      try {
+        const adapter = createVueAdapter(inst, capture2);
+        adapter.getItems(1);
+        log.info("数据通道：Vue 实例（WaterfallGrid）");
+        return adapter;
+      } catch (err) {
+        log.warn("Vue 通道不可用，改用网络抓包", err);
+      }
     }
     if (capture2 && capture2.items.length > 0) {
       log.info("数据通道：网络抓包");
       return createNetworkAdapter(capture2);
     }
-    if (inst) {
-      log.info("数据通道：Vue 实例（等待数据）");
-      return createVueAdapter(inst, capture2);
+    if (inst && !vueReady) {
+      try {
+        const adapter = createVueAdapter(inst, capture2);
+        adapter.getItems(1);
+        log.info("数据通道：Vue 实例（等待数据）");
+        return adapter;
+      } catch (err) {
+        log.warn("Vue 通道不可用", err);
+      }
     }
     return null;
   }
@@ -1057,7 +1077,7 @@
   }
 
   // src/scripts/opus-pagination.js
-  var VERSION = "0.2.0";
+  var VERSION = "0.3.0";
   var SCOPE = "opus";
   var STYLE_ID2 = "bili-tools-opus-style";
   var ACTIVE_CLASS = "bili-tools-opus-active";
@@ -1145,6 +1165,9 @@
       activate(feed);
     } catch (err) {
       log2.warn("启动失败", err);
+      if (state.active || state.opusEl && state.opusEl.classList.contains(ACTIVE_CLASS)) {
+        teardown();
+      }
     } finally {
       state.booting = false;
       state.nextBootAt = Date.now() + 3e3;
@@ -1154,31 +1177,47 @@
     const start = Date.now();
     for (; ; ) {
       if (capture.items.length > 0) return true;
-      const inst = findWaterfall(getVueApp());
-      if (inst && Array.isArray(inst.props.list) && inst.props.list.length > 0) return true;
+      try {
+        const inst = findWaterfall(getVueApp());
+        if (inst && Array.isArray(inst.props.list) && inst.props.list.length > 0) return true;
+      } catch (err) {
+        log2.debug("读取页面 Vue 实例失败", err);
+      }
       if (Date.now() - start >= timeout) return false;
       await sleep(150);
     }
   }
   function activate(feed) {
     if (state.active) return;
+    const opusEl = feed.closest(".opus") || document.querySelector(".opus") || document.body;
+    let adapter = null;
+    try {
+      adapter = createAdapter(capture);
+    } catch (err) {
+      log2.warn("数据通道初始化失败，保留原生页面", err);
+    }
+    if (!adapter) {
+      log2.warn("没有可用的数据通道，保留原生页面");
+      return;
+    }
     state.active = true;
     state.feedEl = feed;
-    state.opusEl = feed.closest(".opus") || document.querySelector(".opus") || document.body;
-    state.opusEl.classList.add(ACTIVE_CLASS);
-    state.adapter = createAdapter(capture);
-    if (!state.adapter) {
-      log2.warn("没有可用的数据通道");
+    state.opusEl = opusEl;
+    state.adapter = adapter;
+    state.type = capture.type;
+    state.tab = activeTabText();
+    try {
+      state.opusEl.classList.add(ACTIVE_CLASS);
+      ensureWrap();
+      ensurePager();
+      bindObservers();
+      refresh(true);
+    } catch (err) {
+      log2.warn("启用图文翻页失败，恢复原生页面", err);
       teardown();
       return;
     }
-    state.type = capture.type;
-    state.tab = activeTabText();
     log2.info("已启用", { adapter: state.adapter.kind, version: VERSION });
-    ensureWrap();
-    ensurePager();
-    bindObservers();
-    refresh(true);
   }
   function onCapture(evt) {
     capture.onResponse(evt);
@@ -1243,47 +1282,31 @@
       footer.appendChild(state.pager.el);
     }
   }
-  var menuCommandId = null;
-  var menuCommandName = "";
-  function compressionMenuName() {
-    return `图片压缩：${state.settings.compressImages ? "开" : "关"}`;
-  }
-  function registerCompressionMenu() {
-    if (window.top !== window) return;
-    if (typeof GM_registerMenuCommand !== "function") return;
-    const name = compressionMenuName();
-    if (menuCommandId !== null && name === menuCommandName) return;
+  function syncSettingsFromStorage() {
+    let next;
     try {
-      if (menuCommandId !== null && typeof GM_unregisterMenuCommand === "function") {
-        GM_unregisterMenuCommand(menuCommandId);
-        menuCommandId = null;
-      }
-      const onClick = () => setCompressImages(!state.settings.compressImages);
-      try {
-        menuCommandId = GM_registerMenuCommand(name, onClick, {
-          autoClose: true,
-          title: "点击切换封面是否加载压缩图（开启更快，关闭加载原图）"
-        });
-      } catch {
-        menuCommandId = GM_registerMenuCommand(name, onClick);
-      }
-      menuCommandName = name;
-    } catch (err) {
-      log2.debug("注册油猴菜单失败", err);
+      next = loadSettings();
+    } catch {
+      return;
+    }
+    if (next.compressImages === state.settings.compressImages) return;
+    state.settings = next;
+    preloadedCovers.clear();
+    if (state.active) {
+      refresh(true);
+      toast(next.compressImages ? "图片压缩已开启（封面加载更快）" : "图片压缩已关闭（封面加载原图）", {
+        duration: 1800
+      });
     }
   }
   function setCompressImages(value) {
     const next = Boolean(value);
-    if (state.settings.compressImages === next) {
-      registerCompressionMenu();
-      return;
-    }
+    if (state.settings.compressImages === next) return;
     state.settings.compressImages = next;
     saveSettings(state.settings);
     preloadedCovers.clear();
-    if (state.active) refresh(true);
-    registerCompressionMenu();
     if (state.active) {
+      refresh(true);
       toast(next ? "已开启图片压缩（封面加载更快）" : "已关闭图片压缩（封面加载原图）", { duration: 1800 });
     }
   }
@@ -1685,9 +1708,11 @@
     startStyle();
     installCapture(onCapture);
     exposeDebug();
-    registerCompressionMenu();
     window.addEventListener("popstate", watchRoute);
     window.addEventListener("hashchange", watchRoute);
+    window.addEventListener("storage", syncSettingsFromStorage);
+    window.addEventListener("bili-tools:opus-settings", syncSettingsFromStorage);
+    setInterval(syncSettingsFromStorage, 1e3);
     setInterval(watchRoute, 500);
     watchRoute();
   }

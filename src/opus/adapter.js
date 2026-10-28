@@ -88,13 +88,25 @@ export function installCapture(onResponse) {
 export function getVueApp() {
   const candidates = [document.getElementById('app'), document.querySelector('[data-v-app]')];
   for (const el of candidates) {
-    if (el && el.__vue_app__) return el.__vue_app__;
+    try {
+      if (el && el.__vue_app__) return el.__vue_app__;
+    } catch {
+      // 油猴沙箱/Xray 下访问页面 expando 可能抛错，交给抓包通道
+    }
   }
   return null;
 }
 
 /** 从 app 挂载容器的 _vnode（生产环境没有 app._instance / __vueParentComponent）找 WaterfallGrid 组件实例 */
 export function findWaterfall(app) {
+  try {
+    return findWaterfallUnsafe(app);
+  } catch {
+    return null;
+  }
+}
+
+function findWaterfallUnsafe(app) {
   if (!app) return null;
   // Vue 3 生产构建不会设置 app._instance（devtools 开关），但 render() 会把根 vnode 挂在容器的 _vnode 上
   const containerCandidates = [
@@ -181,17 +193,30 @@ export function createAdapter(capture) {
   const inst = findWaterfall(app);
   const vueReady = Boolean(inst && Array.isArray(inst.props.list) && inst.props.list.length > 0);
   if (vueReady) {
-    log.info('数据通道：Vue 实例（WaterfallGrid）');
-    return createVueAdapter(inst, capture);
+    try {
+      const adapter = createVueAdapter(inst, capture);
+      // 先试读一页，跨 realm/沙箱下属性访问可能在这里抛错
+      adapter.getItems(1);
+      log.info('数据通道：Vue 实例（WaterfallGrid）');
+      return adapter;
+    } catch (err) {
+      log.warn('Vue 通道不可用，改用网络抓包', err);
+    }
   }
   if (capture && capture.items.length > 0) {
     log.info('数据通道：网络抓包');
     return createNetworkAdapter(capture);
   }
-  if (inst) {
+  if (inst && !vueReady) {
     // 实例已出现但列表还没数据，先用实例通道等数据
-    log.info('数据通道：Vue 实例（等待数据）');
-    return createVueAdapter(inst, capture);
+    try {
+      const adapter = createVueAdapter(inst, capture);
+      adapter.getItems(1);
+      log.info('数据通道：Vue 实例（等待数据）');
+      return adapter;
+    } catch (err) {
+      log.warn('Vue 通道不可用', err);
+    }
   }
   return null;
 }

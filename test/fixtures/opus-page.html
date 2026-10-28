@@ -47,6 +47,7 @@
 (function () {
   const params = new URLSearchParams(location.search);
   const NOMV = params.get('nomv') === '1';
+  const THROW_VUE = params.get('throwvue') === '1';
   const API = '/x/polymer/web-dynamic/v1/opus/feed/space';
   const TOTAL = 60;
   const appEl = document.getElementById('app');
@@ -173,6 +174,16 @@
 
   function setupVue() {
     if (NOMV) return;
+    if (THROW_VUE) {
+      // 模拟油猴沙箱/Xray 下访问页面 expando 抛错
+      Object.defineProperty(appEl, '__vue_app__', {
+        configurable: true,
+        get() {
+          throw new Error('blocked by fixture');
+        },
+      });
+      return;
+    }
     fakeInstance = {
       type: { __name: 'WaterfallGrid', props: {} },
       props: { list: [], columnWidth: 0, loadingLock: false },

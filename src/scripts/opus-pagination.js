@@ -24,7 +24,7 @@ import {
   findWaterfall,
 } from '../opus/adapter.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const SCOPE = 'opus';
 const STYLE_ID = 'bili-tools-opus-style';
 const ACTIVE_CLASS = 'bili-tools-opus-active';
@@ -122,6 +122,10 @@ async function boot() {
     activate(feed);
   } catch (err) {
     log.warn('启动失败', err);
+    // 启动过程如果已经隐藏了原生 feed，必须回滚，避免整页空白
+    if (state.active || (state.opusEl && state.opusEl.classList.contains(ACTIVE_CLASS))) {
+      teardown();
+    }
   } finally {
     state.booting = false;
     state.nextBootAt = Date.now() + 3000;
@@ -132,8 +136,13 @@ async function waitForData(timeout) {
   const start = Date.now();
   for (;;) {
     if (capture.items.length > 0) return true;
-    const inst = findWaterfall(getVueApp());
-    if (inst && Array.isArray(inst.props.list) && inst.props.list.length > 0) return true;
+    try {
+      const inst = findWaterfall(getVueApp());
+      if (inst && Array.isArray(inst.props.list) && inst.props.list.length > 0) return true;
+    } catch (err) {
+      // 油猴沙箱下访问页面 expando 可能被拒绝；继续等抓包通道
+      log.debug('读取页面 Vue 实例失败', err);
+    }
     if (Date.now() - start >= timeout) return false;
     await sleep(150);
   }
@@ -141,23 +150,35 @@ async function waitForData(timeout) {
 
 function activate(feed) {
   if (state.active) return;
+  const opusEl = feed.closest('.opus') || document.querySelector('.opus') || document.body;
+  let adapter = null;
+  try {
+    adapter = createAdapter(capture);
+  } catch (err) {
+    log.warn('数据通道初始化失败，保留原生页面', err);
+  }
+  if (!adapter) {
+    log.warn('没有可用的数据通道，保留原生页面');
+    return;
+  }
   state.active = true;
   state.feedEl = feed;
-  state.opusEl = feed.closest('.opus') || document.querySelector('.opus') || document.body;
-  state.opusEl.classList.add(ACTIVE_CLASS);
-  state.adapter = createAdapter(capture);
-  if (!state.adapter) {
-    log.warn('没有可用的数据通道');
+  state.opusEl = opusEl;
+  state.adapter = adapter;
+  state.type = capture.type;
+  state.tab = activeTabText();
+  try {
+    state.opusEl.classList.add(ACTIVE_CLASS);
+    ensureWrap();
+    ensurePager();
+    bindObservers();
+    refresh(true);
+  } catch (err) {
+    log.warn('启用图文翻页失败，恢复原生页面', err);
     teardown();
     return;
   }
-  state.type = capture.type;
-  state.tab = activeTabText();
   log.info('已启用', { adapter: state.adapter.kind, version: VERSION });
-  ensureWrap();
-  ensurePager();
-  bindObservers();
-  refresh(true);
 }
 
 // ---------------------------------------------------------------------------
@@ -235,55 +256,36 @@ function ensurePager() {
   }
 }
 
-let menuCommandId = null;
-let menuCommandName = '';
-
-function compressionMenuName() {
-  return `图片压缩：${state.settings.compressImages ? '开' : '关'}`;
-}
-
 /**
- * 在油猴扩展菜单里注册/更新“图片压缩”开关。
- * 需要脚本 @grant GM_registerMenuCommand（并用 @sandbox raw 保持页面上下文）。
+ * 主脚本不再申请 GM 权限（避免进入油猴沙箱后读不到页面 Vue 实例 / 拦截不到接口）。
+ * 菜单开关由配套脚本 dist/03-图文翻页菜单.user.js 提供，这里轮询 / 监听它的 localStorage 变更。
  */
-function registerCompressionMenu() {
-  if (window.top !== window) return;
-  if (typeof GM_registerMenuCommand !== 'function') return;
-  const name = compressionMenuName();
-  if (menuCommandId !== null && name === menuCommandName) return;
+function syncSettingsFromStorage() {
+  let next;
   try {
-    if (menuCommandId !== null && typeof GM_unregisterMenuCommand === 'function') {
-      GM_unregisterMenuCommand(menuCommandId);
-      menuCommandId = null;
-    }
-    const onClick = () => setCompressImages(!state.settings.compressImages);
-    try {
-      menuCommandId = GM_registerMenuCommand(name, onClick, {
-        autoClose: true,
-        title: '点击切换封面是否加载压缩图（开启更快，关闭加载原图）',
-      });
-    } catch {
-      // 旧版油猴不支持 options 参数
-      menuCommandId = GM_registerMenuCommand(name, onClick);
-    }
-    menuCommandName = name;
-  } catch (err) {
-    log.debug('注册油猴菜单失败', err);
+    next = loadSettings();
+  } catch {
+    return;
+  }
+  if (next.compressImages === state.settings.compressImages) return;
+  state.settings = next;
+  preloadedCovers.clear();
+  if (state.active) {
+    refresh(true);
+    toast(next.compressImages ? '图片压缩已开启（封面加载更快）' : '图片压缩已关闭（封面加载原图）', {
+      duration: 1800,
+    });
   }
 }
 
 function setCompressImages(value) {
   const next = Boolean(value);
-  if (state.settings.compressImages === next) {
-    registerCompressionMenu();
-    return;
-  }
+  if (state.settings.compressImages === next) return;
   state.settings.compressImages = next;
   saveSettings(state.settings);
   preloadedCovers.clear();
-  if (state.active) refresh(true);
-  registerCompressionMenu();
   if (state.active) {
+    refresh(true);
     toast(next ? '已开启图片压缩（封面加载更快）' : '已关闭图片压缩（封面加载原图）', { duration: 1800 });
   }
 }
@@ -718,9 +720,12 @@ function main() {
   startStyle();
   installCapture(onCapture);
   exposeDebug();
-  registerCompressionMenu();
   window.addEventListener('popstate', watchRoute);
   window.addEventListener('hashchange', watchRoute);
+  // 配套菜单脚本会写入 localStorage，并尽量派发这个事件；轮询作为兜底
+  window.addEventListener('storage', syncSettingsFromStorage);
+  window.addEventListener('bili-tools:opus-settings', syncSettingsFromStorage);
+  setInterval(syncSettingsFromStorage, 1000);
   setInterval(watchRoute, 500);
   watchRoute();
 }
