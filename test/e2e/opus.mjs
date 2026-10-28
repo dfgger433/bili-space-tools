@@ -76,6 +76,8 @@ async function openPage(browser, base, query = '', options = {}) {
     };
     // 模拟油猴的 unsafeWindow（页面上下文里就是 window）
     window.unsafeWindow = window;
+    window.__promptResult = '27';
+    window.prompt = () => window.__promptResult;
   });
   // 用 addInitScript 模拟 document-start 注入（脚本需要提前装接口观察器）
   if (override) {
@@ -390,6 +392,7 @@ async function runUniformRowsTest(browser, base) {
           clamp,
           baseClamp: titleEl ? 2 : textEl ? 3 : 0,
           objectFit: coverEl?.querySelector('img') ? getComputedStyle(coverEl.querySelector('img')).objectFit : '',
+          nativeClip: el.classList.contains('bt-opus-row-native-clip'),
         });
       }
       return Array.from(groups.entries())
@@ -397,23 +400,33 @@ async function runUniformRowsTest(browser, base) {
         .map(([top, list]) => ({ top, list }));
     });
 
-  const assertRows = (rows, columns, label) => {
+  const assertRows = (rows, columns, label, rowStats = []) => {
     assert.equal(rows.length, Math.ceil(20 / columns), `${label}：行数`);
-    let expanded = 0;
     for (let i = 0; i < rows.length; i += 1) {
       const row = rows[i];
       const height = row.list[0].height;
+      const stat = rowStats[i];
+      const clippedRow = Boolean(stat && stat.clipped);
+      if (clippedRow) {
+        assert.ok(row.list.some((item) => item.nativeClip), `${label} 第 ${i + 1} 行应有 B 站默认裁剪卡片`);
+      }
       for (const item of row.list) {
         assert.ok(Math.abs(item.height - height) <= 1, `${label} 第 ${i + 1} 行卡片高度应一致`);
         if (item.cover > 0) {
-          assert.equal(item.objectFit, 'contain', `${label} 封面应完整显示（不裁剪）`);
+          if (clippedRow) {
+            assert.ok(
+              item.objectFit === 'cover' || item.objectFit === 'contain',
+              `${label} 裁剪行只允许 contain/cover`,
+            );
+          } else {
+            assert.equal(item.objectFit, 'contain', `${label} 未裁剪行封面应完整显示（contain）`);
+          }
           const expected = (st.columnWidth * item.ratio) / 100;
           assert.ok(
             Math.abs(item.cover - expected) <= 2,
-            `${label} 第 ${i + 1} 行封面应保持原始比例（${item.cover} vs ${expected}）`,
+            `${label} 第 ${i + 1} 行封面比例（${item.cover} vs ${expected}）`,
           );
         }
-        if (item.clamp > item.baseClamp) expanded += 1;
       }
       for (let j = 1; j < row.list.length; j += 1) {
         assert.ok(row.list[j].left > row.list[j - 1].left, `${label} 第 ${i + 1} 行从左到右排列`);
@@ -424,11 +437,10 @@ async function runUniformRowsTest(browser, base) {
       const prevBottom = prev.top + prev.list[0].height;
       assert.ok(rows[i].top >= prevBottom, `${label}：行之间不应重叠`);
     }
-    assert.ok(expanded > 0, `${label}：应有卡片用被省略的文字填充行高`);
   };
 
   const rows1 = await readRows();
-  assertRows(rows1, st.columns, '第 1 页');
+  assertRows(rows1, st.columns, '第 1 页', rowState.rowStats);
   await page.screenshot({ path: path.join(SHOTS, 'opus-uniform-row.png'), fullPage: true });
 
   await clickNextNoScroll(page);
@@ -440,8 +452,9 @@ async function runUniformRowsTest(browser, base) {
   );
   await page.waitForTimeout(700);
   assert.equal(await itemCount(page), 20);
+  const rowState2 = await page.evaluate(() => window.BILI_TOOLS.row.state);
   const rows2 = await readRows();
-  assertRows(rows2, st.columns, '第 2 页');
+  assertRows(rows2, st.columns, '第 2 页', rowState2.rowStats);
 
   assert.deepEqual(errors, [], '不应有未捕获异常');
   await context.close();
@@ -520,6 +533,50 @@ async function runModulePersistenceTest(browser, base) {
   await context.close();
   console.log('单脚本开关持久化测试通过');
 }
+async function runRowClipMenuTest(browser, base) {
+  console.log('--- 单脚本：行高裁剪阈值菜单 ---');
+  const { context, page, errors } = await openPage(browser, base, '', { withRow: true });
+  await page.waitForFunction(() => window.BILI_TOOLS?.row?.state?.mode === 'bt', null, { timeout: 10000 });
+  const names = () => page.evaluate(() => (window.__gmMenuCommands || []).map((item) => item.name));
+  const click = (prefix) =>
+    page.evaluate((prefix) => {
+      const cmd = (window.__gmMenuCommands || []).find((item) => item.name.startsWith(prefix));
+      if (!cmd) throw new Error(`未找到菜单：${prefix}`);
+      cmd.callback(new MouseEvent('click'));
+    }, prefix);
+
+  assert.ok((await names()).includes('行高裁剪阈值：27%（0=关闭）'), '默认阈值菜单应为 27%');
+
+  await page.evaluate(() => {
+    window.__promptResult = '0';
+  });
+  await click('行高裁剪阈值');
+  await page.waitForFunction(() => window.BILI_TOOLS?.row?.state?.clipPercent === 0, null, { timeout: 5000 });
+  await page.waitForTimeout(400);
+  assert.ok((await names()).includes('行高裁剪阈值：0%（0=关闭）'));
+  assert.equal(
+    await page.evaluate(() => (window.BILI_TOOLS.row.state.rowStats || []).some((item) => item.clipped)),
+    false,
+    '阈值 0 时不应裁剪任何行',
+  );
+
+  await page.evaluate(() => {
+    window.__promptResult = '40';
+  });
+  await click('行高裁剪阈值');
+  await page.waitForFunction(() => window.BILI_TOOLS?.row?.state?.clipPercent === 40, null, { timeout: 5000 });
+  await page.waitForTimeout(400);
+  assert.ok((await names()).includes('行高裁剪阈值：40%（0=关闭）'));
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => window.BILI_TOOLS?.opus?.active === true, null, { timeout: 25000 });
+  await page.waitForFunction(() => window.BILI_TOOLS?.row?.state?.mode === 'bt', null, { timeout: 10000 });
+  assert.equal(await page.evaluate(() => window.BILI_TOOLS.row.state.clipPercent), 40, '刷新后阈值应保持');
+  assert.ok((await names()).includes('行高裁剪阈值：40%（0=关闭）'));
+  assert.deepEqual(errors, [], '阈值菜单不应产生未捕获异常');
+  await context.close();
+  console.log('行高裁剪阈值菜单测试通过');
+}
 async function main() {
   await mkdir(SHOTS, { recursive: true });
   const executablePath = await findBrowser();
@@ -534,6 +591,7 @@ async function main() {
     await runUniformRowsTest(browser, server.url);
     await runModuleToggleTest(browser, server.url);
     await runModulePersistenceTest(browser, server.url);
+    await runRowClipMenuTest(browser, server.url);
   } finally {
     await browser.close();
     await server.close();
@@ -545,6 +603,7 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
 
 
 

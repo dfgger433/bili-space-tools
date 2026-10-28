@@ -10,7 +10,7 @@ export const scripts = [
       name: 'B站空间页增强（动态翻页/图文翻页/统一行高）',
       nameZh: 'B站空间页增强（动态翻页/图文翻页/统一行高）',
       namespace: 'https://github.com/bili-space-tools/bili-space-tools',
-      version: '1.0.0',
+      version: '1.0.1',
       description: '单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。',
       descriptionZh: '单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。',
       author: 'bili-space-tools',
@@ -34,3 +34,4 @@ export const scripts = [
     },
   },
 ];
+

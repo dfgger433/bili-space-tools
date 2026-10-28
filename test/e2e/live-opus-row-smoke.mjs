@@ -65,6 +65,7 @@ async function main() {
         groups.get(top).push({
           height: Math.round(rect.height * 100) / 100,
           objectFit: img ? getComputedStyle(img).objectFit : '',
+          nativeClip: el.classList.contains('bt-opus-row-native-clip'),
         });
       }
       const feed = document.querySelector('.opus-feed');
@@ -76,7 +77,12 @@ async function main() {
           : false,
         rows: Array.from(groups.entries())
           .sort((a, b) => a[0] - b[0])
-          .map(([top, list]) => ({ top, heights: list.map((x) => x.height), fits: [...new Set(list.map((x) => x.objectFit))] })),
+          .map(([top, list]) => ({
+            top,
+            heights: list.map((x) => x.height),
+            fits: [...new Set(list.map((x) => x.objectFit))],
+            natives: list.map((x) => x.nativeClip),
+          })),
       };
     });
 
@@ -98,9 +104,18 @@ async function main() {
     assert.equal(layout.pager, 0, '03 不应创建分页条');
     assert.equal(layout.feedHidden, true, '原生 feed 应隐藏（由 03 的克隆网格显示）');
     assert.equal(layout.count, st.items, '克隆网格应包含所有已加载图文');
-    for (const row of layout.rows) {
+    assert.equal(st.clipPercent, 27, '默认裁剪阈值应为 27%');
+    const rowStats = st.rowStats || [];
+    for (let i = 0; i < layout.rows.length; i += 1) {
+      const row = layout.rows[i];
+      const stat = rowStats[i];
       assert.equal(new Set(row.heights.map((h) => Math.round(h))).size, 1, '同一行卡片应等高');
-      assert.ok(row.fits.every((fit) => fit === 'contain'), '封面应完整显示（contain，不裁剪）');
+      if (stat && stat.clipped) {
+        assert.ok(row.natives.some(Boolean), `第 ${i + 1} 行应有 B 站默认裁剪卡片`);
+        assert.ok(row.fits.every((fit) => fit === 'contain' || fit === 'cover'), '裁剪行只允许 contain/cover');
+      } else {
+        assert.ok(row.fits.every((fit) => fit === 'contain'), '未裁剪行封面应完整显示（contain）');
+      }
     }
 
     const before = layout.count;

@@ -144,6 +144,62 @@ export function layoutRows(
   };
 }
 
+/**
+ * 行优先布局 + 按行平均值裁剪。
+ * 每行自动计算平均高度 avg；最高卡片超出平均值比例 excess = (max-avg)/avg。
+ * clipPercent = 0 停用（不裁剪）；excess <= clipPercent 保留原始行高 max；
+ * excess > clipPercent 时行高 = round(avg)，高于平均值的卡片按 B 站默认方式裁剪。
+ */
+export function layoutRowsWithClip(
+  items,
+  {
+    columnWidth,
+    columns,
+    rowGutter = DEFAULT_ROW_GUTTER,
+    columnGutter = DEFAULT_COLUMN_GUTTER,
+    clipPercent = 0,
+  } = {},
+) {
+  const list = items || [];
+  const cw = Number(columnWidth) || 0;
+  const m = Math.max(1, Math.floor(Number(columns) || 1));
+  const threshold = Number(clipPercent) || 0;
+  const positions = new Array(list.length);
+  const rowHeights = [];
+  const rowStats = [];
+  let top = 0;
+
+  for (let start = 0; start < list.length; start += m) {
+    const row = list.slice(start, start + m);
+    const rowIndex = rowHeights.length;
+    const heights = row.map((item) => Math.max(0, Number(item && item.height) || 0));
+    const avg = heights.length ? heights.reduce((sum, h) => sum + h, 0) / heights.length : 0;
+    const max = heights.length ? Math.max(...heights) : 0;
+    const excess = avg > 0 ? ((max - avg) / avg) * 100 : 0;
+    const clipped = threshold > 0 && excess > threshold;
+    const rowHeight = clipped ? Math.round(avg) : max;
+    rowHeights.push(rowHeight);
+    rowStats.push({ avg, max, excess, rowHeight, clipped });
+    row.forEach((item, column) => {
+      positions[start + column] = {
+        left: column * (cw + columnGutter),
+        top,
+        height: rowHeight,
+        row: rowIndex,
+      };
+    });
+    top += rowHeight + rowGutter;
+  }
+
+  return {
+    positions,
+    rowHeights,
+    rowStats,
+    width: m * cw + (m - 1) * columnGutter,
+    height: Math.max(0, top - rowGutter),
+  };
+}
+
 export function totalPages(loadedCount, pageSize) {
   const size = Math.max(1, Math.floor(Number(pageSize) || 20));
   const count = Math.max(0, Math.floor(Number(loadedCount) || 0));

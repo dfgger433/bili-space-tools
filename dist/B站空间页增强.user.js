@@ -4,7 +4,7 @@
 // @name         B站空间页增强（动态翻页/图文翻页/统一行高）
 // @name:zh-CN   B站空间页增强（动态翻页/图文翻页/统一行高）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      1.0.0
+// @version      1.0.1
 // @description  单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @description:zh-CN 单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @author       bili-space-tools
@@ -1296,23 +1296,32 @@
       height: heights.length ? Math.max(...heights) : 0
     };
   }
-  function layoutRows(items, {
+  function layoutRowsWithClip(items, {
     columnWidth,
     columns,
     rowGutter = DEFAULT_ROW_GUTTER,
-    columnGutter = DEFAULT_COLUMN_GUTTER
+    columnGutter = DEFAULT_COLUMN_GUTTER,
+    clipPercent: clipPercent2 = 0
   } = {}) {
     const list = items || [];
     const cw = Number(columnWidth) || 0;
     const m = Math.max(1, Math.floor(Number(columns) || 1));
+    const threshold = Number(clipPercent2) || 0;
     const positions = new Array(list.length);
     const rowHeights = [];
+    const rowStats = [];
     let top = 0;
     for (let start5 = 0; start5 < list.length; start5 += m) {
       const row = list.slice(start5, start5 + m);
       const rowIndex = rowHeights.length;
-      const rowHeight = row.reduce((max, item) => Math.max(max, Number(item && item.height) || 0), 0);
+      const heights = row.map((item) => Math.max(0, Number(item && item.height) || 0));
+      const avg = heights.length ? heights.reduce((sum, h) => sum + h, 0) / heights.length : 0;
+      const max = heights.length ? Math.max(...heights) : 0;
+      const excess = avg > 0 ? (max - avg) / avg * 100 : 0;
+      const clipped = threshold > 0 && excess > threshold;
+      const rowHeight = clipped ? Math.round(avg) : max;
       rowHeights.push(rowHeight);
+      rowStats.push({ avg, max, excess, rowHeight, clipped });
       row.forEach((item, column) => {
         positions[start5 + column] = {
           left: column * (cw + columnGutter),
@@ -1326,6 +1335,7 @@
     return {
       positions,
       rowHeights,
+      rowStats,
       width: m * cw + (m - 1) * columnGutter,
       height: Math.max(0, top - rowGutter)
     };
@@ -2487,7 +2497,7 @@
   }
 
   // src/scripts/opus-uniform-row.js
-  var VERSION3 = "0.3.1";
+  var VERSION3 = "0.4.1";
   var SCOPE3 = "opus-row";
   var STYLE_ID4 = "bili-tools-opus-row-style";
   var HIDE_CLASS = "bt-opus-row-hidden";
@@ -2495,7 +2505,13 @@
   var GRID_CLASS = "bt-opus-row-grid";
   var ITEM_CLASS = "bt-opus-row-item";
   var READY_CLASS = "bt-opus-row-ready";
+  var NATIVE_CLIP_CLASS = "bt-opus-row-native-clip";
   var BT_ROOT_CLASS = "bt-opus-row-bt";
+  var SETTINGS_KEY = "biliTools:opusRow";
+  var LOCAL_KEY = "biliTools:opusRow:clipPercent";
+  var DEFAULT_CLIP_PERCENT = 27;
+  var NATIVE_PORTRAIT_RATIO = "131.25%";
+  var NATIVE_LANDSCAPE_RATIO = "75.3488%";
   var TITLE_LINE_HEIGHT = 16.8;
   var TEXT_LINE_HEIGHT = 20;
   var startedAt = Date.now();
@@ -2508,11 +2524,13 @@
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card{overflow:hidden}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text .opus-card__icons{margin-top:auto}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
 .${BT_ROOT_CLASS} > .bt-opus-item .bili-cover-card{overflow:hidden}
 .${BT_ROOT_CLASS} > .bt-opus-item .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
+.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card--only-text .opus-card__icons{margin-top:auto}
 `;
@@ -2524,6 +2542,8 @@
     columns: 0,
     rows: 0,
     rowHeights: [],
+    rowStats: [],
+    clipPercent: DEFAULT_CLIP_PERCENT,
     lastError: "",
     lastApplyAt: 0
   };
@@ -2549,6 +2569,9 @@
   var btResizeBound = false;
   var running3 = false;
   var mainTimer3 = null;
+  var clipPercent = DEFAULT_CLIP_PERCENT;
+  var menuCommandId2 = null;
+  var menuCommandName2 = "";
   function exposeDebug3() {
     window.BILI_TOOLS = window.BILI_TOOLS || {};
     window.BILI_TOOLS.row = {
@@ -2557,8 +2580,119 @@
       apply: () => {
         if (btGrid) scheduleBtApply(0);
         else scheduleRebuild(0);
+      },
+      setClipPercent: (value) => setClipPercent(value),
+      get clipPercent() {
+        return clipPercent;
       }
     };
+  }
+  function pageWindow3() {
+    try {
+      if (typeof unsafeWindow !== "undefined" && unsafeWindow) return unsafeWindow;
+    } catch {
+    }
+    return window;
+  }
+  function clampPercent(value) {
+    if (value === null || value === void 0) return null;
+    const text = String(value).trim();
+    if (text === "") return null;
+    const num = Number(text);
+    if (!Number.isFinite(num)) return null;
+    return Math.max(0, Math.min(100, Math.round(num)));
+  }
+  function loadClipPercent() {
+    let saved = null;
+    try {
+      if (typeof GM_getValue === "function") saved = GM_getValue(SETTINGS_KEY, DEFAULT_CLIP_PERCENT);
+    } catch {
+    }
+    if (saved === null || saved === void 0) {
+      try {
+        const raw = localStorage.getItem(LOCAL_KEY);
+        if (raw !== null) saved = raw;
+      } catch {
+      }
+    }
+    const value = clampPercent(saved);
+    return value === null ? DEFAULT_CLIP_PERCENT : value;
+  }
+  function saveClipPercent(value) {
+    try {
+      if (typeof GM_setValue === "function") GM_setValue(SETTINGS_KEY, value);
+    } catch {
+    }
+    try {
+      localStorage.setItem(LOCAL_KEY, String(value));
+    } catch {
+    }
+  }
+  function clipMenuName() {
+    return `行高裁剪阈值：${clipPercent}%（0=关闭）`;
+  }
+  function registerClipMenu() {
+    if (window.top !== window) return;
+    if (typeof GM_registerMenuCommand !== "function") return;
+    const name = clipMenuName();
+    if (menuCommandId2 !== null && name === menuCommandName2) return;
+    try {
+      if (menuCommandId2 !== null && typeof GM_unregisterMenuCommand === "function") {
+        GM_unregisterMenuCommand(menuCommandId2);
+      }
+    } catch {
+    }
+    menuCommandId2 = null;
+    try {
+      menuCommandId2 = GM_registerMenuCommand(name, openClipPrompt);
+      menuCommandName2 = name;
+    } catch {
+      menuCommandId2 = null;
+    }
+  }
+  function unregisterClipMenu() {
+    if (menuCommandId2 !== null && typeof GM_unregisterMenuCommand === "function") {
+      try {
+        GM_unregisterMenuCommand(menuCommandId2);
+      } catch {
+      }
+    }
+    menuCommandId2 = null;
+    menuCommandName2 = "";
+  }
+  function openClipPrompt() {
+    const W = pageWindow3();
+    let raw = null;
+    try {
+      raw = (W.prompt || window.prompt).call(
+        W,
+        "设置行高裁剪阈值（0-100%，0 = 关闭裁剪）：",
+        String(clipPercent)
+      );
+    } catch {
+      return;
+    }
+    if (raw === null || raw === void 0 || String(raw).trim() === "") return;
+    const value = clampPercent(String(raw).trim());
+    if (value === null) {
+      toast("请输入 0-100 之间的数字", { duration: 1800 });
+      return;
+    }
+    setClipPercent(value);
+  }
+  function setClipPercent(value) {
+    const next = clampPercent(value);
+    if (next === null) return;
+    clipPercent = next;
+    state3.clipPercent = next;
+    saveClipPercent(next);
+    registerClipMenu();
+    if (running3) {
+      if (btGrid) scheduleBtApply(0);
+      else if (source) scheduleRebuild(0);
+    }
+    toast(`行高裁剪阈值：${next}%${next === 0 ? "（已关闭裁剪）" : ""}`, { duration: 1800 });
+    log4.info("裁剪阈值已更新", { clipPercent: next });
   }
   function sourceItems() {
     if (!source) return [];
@@ -2640,9 +2774,32 @@
     const img = item.querySelector(".bili-cover-card img");
     if (!img) return;
     const src = img.getAttribute("src") || "";
+    if (!item.dataset.btNativeRatio) {
+      const cover = item.querySelector(".bili-cover-card");
+      let nativeRatio = cover && cover.style.getPropertyValue("--bili-cover-card-ratio") || "";
+      if (!nativeRatio) {
+        const match = src.match(/@(\d+)w_(\d+)h_/);
+        if (match) nativeRatio = `${(Number(match[2]) / Number(match[1]) * 100).toFixed(3)}%`;
+      }
+      if (nativeRatio) item.dataset.btNativeRatio = nativeRatio;
+    }
     if (src.includes("@")) {
       img.setAttribute("src", `${src.split("@")[0]}@640w.webp`);
     }
+  }
+  function nativeRatioFor(item) {
+    if (item.dataset.btNativeRatio) return item.dataset.btNativeRatio;
+    const img = item.querySelector(".bili-cover-card img");
+    if (!img || !img.naturalWidth || !img.naturalHeight) return NATIVE_LANDSCAPE_RATIO;
+    return img.naturalHeight / img.naturalWidth >= 1 ? NATIVE_PORTRAIT_RATIO : NATIVE_LANDSCAPE_RATIO;
+  }
+  function applyNativeClip(item) {
+    const ratio = nativeRatioFor(item);
+    const cover = item.querySelector(".bili-cover-card");
+    if (!ratio || !cover) return false;
+    cover.style.setProperty("--bili-cover-card-ratio", ratio);
+    item.classList.add(NATIVE_CLIP_CLASS);
+    return true;
   }
   function setCloneCoverRatio(item) {
     const cover = item.querySelector(".bili-cover-card");
@@ -2657,6 +2814,7 @@
     item.style.removeProperty("height");
     item.style.removeProperty("transform");
     item.style.width = `${columnWidth}px`;
+    item.classList.remove(NATIVE_CLIP_CLASS);
     const clamp = clampElement(item);
     if (clamp) clamp.el.style.setProperty("-webkit-line-clamp", String(clamp.base));
     restoreCloneImage(item);
@@ -2705,13 +2863,14 @@
         const card = clone.querySelector(".opus-card");
         return Math.round(card ? card.offsetHeight : clone.getBoundingClientRect().height);
       });
-      const result = layoutRows(
+      const result = layoutRowsWithClip(
         naturalHeights.map((height) => ({ height })),
         {
           columnWidth: info.columnWidth,
           columns: info.columns,
           rowGutter: DEFAULT_ROW_GUTTER,
-          columnGutter: DEFAULT_COLUMN_GUTTER
+          columnGutter: DEFAULT_COLUMN_GUTTER,
+          clipPercent
         }
       );
       grid.classList.add(READY_CLASS);
@@ -2721,11 +2880,15 @@
         const pos = result.positions[index];
         clone.style.height = `${pos.height}px`;
         clone.style.transform = `translate(${pos.left}px, ${pos.top}px)`;
-        const extra = Math.max(0, pos.height - naturalHeights[index]);
         const clamp = clampElement(clone);
-        if (clamp && extra > 0) {
-          const lines = clamp.base + Math.min(20, Math.floor(extra / clamp.lineHeight));
-          clamp.el.style.setProperty("-webkit-line-clamp", String(lines));
+        if (clamp) clamp.el.style.setProperty("-webkit-line-clamp", String(clamp.base));
+        const rowIndex = Math.floor(index / info.columns);
+        const stat = result.rowStats[rowIndex];
+        const useNativeClip = Boolean(stat && stat.clipped && naturalHeights[index] > stat.rowHeight);
+        if (useNativeClip) {
+          if (!applyNativeClip(clone)) clone.classList.remove(NATIVE_CLIP_CLASS);
+        } else {
+          clone.classList.remove(NATIVE_CLIP_CLASS);
         }
       });
       state3.active = true;
@@ -2734,6 +2897,8 @@
       state3.columns = info.columns;
       state3.rows = result.rowHeights.length;
       state3.rowHeights = result.rowHeights;
+      state3.rowStats = result.rowStats;
+      state3.clipPercent = clipPercent;
       state3.lastError = "";
       state3.lastApplyAt = Date.now();
     } finally {
@@ -2811,6 +2976,7 @@
         item.style.removeProperty("height");
         item.style.removeProperty("transform");
         item.style.width = `${info.columnWidth}px`;
+        item.classList.remove(NATIVE_CLIP_CLASS);
         const clamp = clampElement(item);
         if (clamp) clamp.el.style.setProperty("-webkit-line-clamp", String(clamp.base));
         setCloneCoverRatio(item);
@@ -2820,13 +2986,14 @@
         const card = item.querySelector(".opus-card");
         return Math.round(card ? card.offsetHeight : item.getBoundingClientRect().height);
       });
-      const result = layoutRows(
+      const result = layoutRowsWithClip(
         naturalHeights.map((height) => ({ height })),
         {
           columnWidth: info.columnWidth,
           columns: info.columns,
           rowGutter: DEFAULT_ROW_GUTTER,
-          columnGutter: DEFAULT_COLUMN_GUTTER
+          columnGutter: DEFAULT_COLUMN_GUTTER,
+          clipPercent
         }
       );
       btGrid.classList.add(BT_ROOT_CLASS);
@@ -2836,11 +3003,15 @@
         const pos = result.positions[index];
         item.style.height = `${pos.height}px`;
         item.style.transform = `translate(${pos.left}px, ${pos.top}px)`;
-        const extra = Math.max(0, pos.height - naturalHeights[index]);
         const clamp = clampElement(item);
-        if (clamp && extra > 0) {
-          const lines = clamp.base + Math.min(20, Math.floor(extra / clamp.lineHeight));
-          clamp.el.style.setProperty("-webkit-line-clamp", String(lines));
+        if (clamp) clamp.el.style.setProperty("-webkit-line-clamp", String(clamp.base));
+        const rowIndex = Math.floor(index / info.columns);
+        const stat = result.rowStats[rowIndex];
+        const useNativeClip = Boolean(stat && stat.clipped && naturalHeights[index] > stat.rowHeight);
+        if (useNativeClip) {
+          if (!applyNativeClip(item)) item.classList.remove(NATIVE_CLIP_CLASS);
+        } else {
+          item.classList.remove(NATIVE_CLIP_CLASS);
         }
       });
       state3.active = true;
@@ -2849,6 +3020,8 @@
       state3.columns = info.columns;
       state3.rows = result.rowHeights.length;
       state3.rowHeights = result.rowHeights;
+      state3.rowStats = result.rowStats;
+      state3.clipPercent = clipPercent;
       state3.lastError = "";
       state3.lastApplyAt = Date.now();
       btIgnoreUntil = Date.now() + 200;
@@ -2888,6 +3061,7 @@
         item.style.removeProperty("height");
         item.style.removeProperty("transform");
         item.style.removeProperty("width");
+        item.classList.remove(NATIVE_CLIP_CLASS);
         const clamp = clampElement(item);
         if (clamp) clamp.el.style.setProperty("-webkit-line-clamp", String(clamp.base));
       }
@@ -3022,9 +3196,12 @@
     if (running3) return;
     running3 = true;
     startedAt = Date.now();
+    clipPercent = loadClipPercent();
+    state3.clipPercent = clipPercent;
     addStyle(STYLE_ID4, CSS4);
     exposeDebug3();
-    log4.info(`统一行高脚本 v${VERSION3} 启动`);
+    registerClipMenu();
+    log4.info(`统一行高脚本 v${VERSION3} 启动`, { clipPercent });
     mainTimer3 = setInterval(() => {
       const next = findTarget();
       attachTarget(next);
@@ -3049,6 +3226,7 @@
     }
     detachBt();
     detachSource();
+    unregisterClipMenu();
     state3.lastError = "";
     log4.info("统一行高脚本已停止");
   }
@@ -3116,7 +3294,7 @@
   }
 
   // src/scripts/bili-space-tools.js
-  var VERSION4 = "1.0.0";
+  var VERSION4 = "1.0.1";
   var SCOPE4 = "all";
   var GLOBAL_KEY3 = "__biliToolsAllLoaded__";
   var log5 = createLogger(SCOPE4);

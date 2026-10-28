@@ -2,11 +2,12 @@
 // 02 图文翻页在用时接管 02 的 .bt-opus-grid，分页 + 统一行高同时生效。
 // 两种模式下都不修改原生 WaterfallGrid 的绝对定位，避免抢布局。
 import { DEFAULT_COLUMN_GUTTER, DEFAULT_ROW_GUTTER } from '../opus/model.js';
-import { layoutRows } from '../opus/layout.js';
+import { layoutRowsWithClip } from '../opus/layout.js';
 import { createLogger } from '../shared/log.js';
 import { addStyle } from '../shared/style.js';
+import { toast } from '../shared/toast.js';
 
-const VERSION = '0.3.1';
+const VERSION = '0.4.1';
 const SCOPE = 'opus-row';
 const STYLE_ID = 'bili-tools-opus-row-style';
 const HIDE_CLASS = 'bt-opus-row-hidden';
@@ -14,7 +15,13 @@ const WRAP_CLASS = 'bt-opus-row-wrap';
 const GRID_CLASS = 'bt-opus-row-grid';
 const ITEM_CLASS = 'bt-opus-row-item';
 const READY_CLASS = 'bt-opus-row-ready';
+const NATIVE_CLIP_CLASS = 'bt-opus-row-native-clip';
 const BT_ROOT_CLASS = 'bt-opus-row-bt';
+const SETTINGS_KEY = 'biliTools:opusRow';
+const LOCAL_KEY = 'biliTools:opusRow:clipPercent';
+const DEFAULT_CLIP_PERCENT = 27;
+const NATIVE_PORTRAIT_RATIO = '131.25%';
+const NATIVE_LANDSCAPE_RATIO = '75.3488%';
 const TITLE_LINE_HEIGHT = 16.8;
 const TEXT_LINE_HEIGHT = 20;
 let startedAt = Date.now();
@@ -29,11 +36,13 @@ const CSS = `
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card{overflow:hidden}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text .opus-card__icons{margin-top:auto}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
 .${BT_ROOT_CLASS} > .bt-opus-item .bili-cover-card{overflow:hidden}
 .${BT_ROOT_CLASS} > .bt-opus-item .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
+.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card--only-text .opus-card__icons{margin-top:auto}
 `;
@@ -46,6 +55,8 @@ const state = {
   columns: 0,
   rows: 0,
   rowHeights: [],
+  rowStats: [],
+  clipPercent: DEFAULT_CLIP_PERCENT,
   lastError: '',
   lastApplyAt: 0,
 };
@@ -72,6 +83,9 @@ let btIgnoreUntil = 0;
 let btResizeBound = false;
 let running = false;
 let mainTimer = null;
+let clipPercent = DEFAULT_CLIP_PERCENT;
+let menuCommandId = null;
+let menuCommandName = '';
 
 function exposeDebug() {
   window.BILI_TOOLS = window.BILI_TOOLS || {};
@@ -82,7 +96,134 @@ function exposeDebug() {
       if (btGrid) scheduleBtApply(0);
       else scheduleRebuild(0);
     },
+    setClipPercent: (value) => setClipPercent(value),
+    get clipPercent() {
+      return clipPercent;
+    },
   };
+}
+
+function pageWindow() {
+  try {
+    if (typeof unsafeWindow !== 'undefined' && unsafeWindow) return unsafeWindow;
+  } catch {
+    /* ignore */
+  }
+  return window;
+}
+
+function clampPercent(value) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  if (text === '') return null;
+  const num = Number(text);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.min(100, Math.round(num)));
+}
+
+function loadClipPercent() {
+  let saved = null;
+  try {
+    if (typeof GM_getValue === 'function') saved = GM_getValue(SETTINGS_KEY, DEFAULT_CLIP_PERCENT);
+  } catch {
+    /* ignore */
+  }
+  if (saved === null || saved === undefined) {
+    try {
+      const raw = localStorage.getItem(LOCAL_KEY);
+      if (raw !== null) saved = raw;
+    } catch {
+      /* ignore */
+    }
+  }
+  const value = clampPercent(saved);
+  return value === null ? DEFAULT_CLIP_PERCENT : value;
+}
+
+function saveClipPercent(value) {
+  try {
+    if (typeof GM_setValue === 'function') GM_setValue(SETTINGS_KEY, value);
+  } catch {
+    /* ignore */
+  }
+  try {
+    localStorage.setItem(LOCAL_KEY, String(value));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clipMenuName() {
+  return `行高裁剪阈值：${clipPercent}%（0=关闭）`;
+}
+
+function registerClipMenu() {
+  if (window.top !== window) return;
+  if (typeof GM_registerMenuCommand !== 'function') return;
+  const name = clipMenuName();
+  if (menuCommandId !== null && name === menuCommandName) return;
+  try {
+    if (menuCommandId !== null && typeof GM_unregisterMenuCommand === 'function') {
+      GM_unregisterMenuCommand(menuCommandId);
+    }
+  } catch {
+    /* ignore */
+  }
+  menuCommandId = null;
+  try {
+    menuCommandId = GM_registerMenuCommand(name, openClipPrompt);
+    menuCommandName = name;
+  } catch {
+    menuCommandId = null;
+  }
+}
+
+function unregisterClipMenu() {
+  if (menuCommandId !== null && typeof GM_unregisterMenuCommand === 'function') {
+    try {
+      GM_unregisterMenuCommand(menuCommandId);
+    } catch {
+      /* ignore */
+    }
+  }
+  menuCommandId = null;
+  menuCommandName = '';
+}
+
+function openClipPrompt() {
+  const W = pageWindow();
+  let raw = null;
+  try {
+    raw = (W.prompt || window.prompt).call(
+      W,
+      '设置行高裁剪阈值（0-100%，0 = 关闭裁剪）：',
+      String(clipPercent),
+    );
+  } catch {
+    return;
+  }
+  if (raw === null || raw === undefined || String(raw).trim() === '') return;
+  const value = clampPercent(String(raw).trim());
+  if (value === null) {
+    toast('请输入 0-100 之间的数字', { duration: 1800 });
+    return;
+  }
+  setClipPercent(value);
+}
+
+function setClipPercent(value) {
+  const next = clampPercent(value);
+  if (next === null) return;
+  clipPercent = next;
+  state.clipPercent = next;
+  saveClipPercent(next);
+  registerClipMenu();
+  if (running) {
+    if (btGrid) scheduleBtApply(0);
+    else if (source) scheduleRebuild(0);
+  }
+  toast(`行高裁剪阈值：${next}%${next === 0 ? '（已关闭裁剪）' : ''}`, { duration: 1800 });
+  log.info('裁剪阈值已更新', { clipPercent: next });
 }
 
 function sourceItems() {
@@ -187,10 +328,39 @@ function restoreCloneImage(item) {
   const img = item.querySelector('.bili-cover-card img');
   if (!img) return;
   const src = img.getAttribute('src') || '';
+  if (!item.dataset.btNativeRatio) {
+    const cover = item.querySelector('.bili-cover-card');
+    let nativeRatio = (cover && cover.style.getPropertyValue('--bili-cover-card-ratio')) || '';
+    if (!nativeRatio) {
+      const match = src.match(/@(\d+)w_(\d+)h_/);
+      if (match) nativeRatio = `${((Number(match[2]) / Number(match[1])) * 100).toFixed(3)}%`;
+    }
+    if (nativeRatio) item.dataset.btNativeRatio = nativeRatio;
+  }
   if (src.includes('@')) {
     // 原生卡片用裁剪缩略图；换成保比例的 640w 图，完整显示封面
     img.setAttribute('src', `${src.split('@')[0]}@640w.webp`);
   }
+}
+
+function nativeRatioFor(item) {
+  if (item.dataset.btNativeRatio) return item.dataset.btNativeRatio;
+  const img = item.querySelector('.bili-cover-card img');
+  if (!img || !img.naturalWidth || !img.naturalHeight) return NATIVE_LANDSCAPE_RATIO;
+  return img.naturalHeight / img.naturalWidth >= 1 ? NATIVE_PORTRAIT_RATIO : NATIVE_LANDSCAPE_RATIO;
+}
+
+/**
+ * B 站默认裁剪：使用原生封面比例 + object-fit: cover，
+ * 让超过平均值的卡片以原生封面的方式裁剪，而不是直接切断卡片。
+ */
+function applyNativeClip(item) {
+  const ratio = nativeRatioFor(item);
+  const cover = item.querySelector('.bili-cover-card');
+  if (!ratio || !cover) return false;
+  cover.style.setProperty('--bili-cover-card-ratio', ratio);
+  item.classList.add(NATIVE_CLIP_CLASS);
+  return true;
 }
 
 function setCloneCoverRatio(item) {
@@ -207,6 +377,7 @@ function resetClone(item, columnWidth) {
   item.style.removeProperty('height');
   item.style.removeProperty('transform');
   item.style.width = `${columnWidth}px`;
+  item.classList.remove(NATIVE_CLIP_CLASS);
   const clamp = clampElement(item);
   if (clamp) clamp.el.style.setProperty('-webkit-line-clamp', String(clamp.base));
   restoreCloneImage(item);
@@ -257,13 +428,14 @@ function layout() {
       const card = clone.querySelector('.opus-card');
       return Math.round(card ? card.offsetHeight : clone.getBoundingClientRect().height);
     });
-    const result = layoutRows(
+    const result = layoutRowsWithClip(
       naturalHeights.map((height) => ({ height })),
       {
         columnWidth: info.columnWidth,
         columns: info.columns,
         rowGutter: DEFAULT_ROW_GUTTER,
         columnGutter: DEFAULT_COLUMN_GUTTER,
+        clipPercent,
       },
     );
     grid.classList.add(READY_CLASS);
@@ -273,11 +445,15 @@ function layout() {
       const pos = result.positions[index];
       clone.style.height = `${pos.height}px`;
       clone.style.transform = `translate(${pos.left}px, ${pos.top}px)`;
-      const extra = Math.max(0, pos.height - naturalHeights[index]);
       const clamp = clampElement(clone);
-      if (clamp && extra > 0) {
-        const lines = clamp.base + Math.min(20, Math.floor(extra / clamp.lineHeight));
-        clamp.el.style.setProperty('-webkit-line-clamp', String(lines));
+      if (clamp) clamp.el.style.setProperty('-webkit-line-clamp', String(clamp.base));
+      const rowIndex = Math.floor(index / info.columns);
+      const stat = result.rowStats[rowIndex];
+      const useNativeClip = Boolean(stat && stat.clipped && naturalHeights[index] > stat.rowHeight);
+      if (useNativeClip) {
+        if (!applyNativeClip(clone)) clone.classList.remove(NATIVE_CLIP_CLASS);
+      } else {
+        clone.classList.remove(NATIVE_CLIP_CLASS);
       }
     });
     state.active = true;
@@ -286,6 +462,8 @@ function layout() {
     state.columns = info.columns;
     state.rows = result.rowHeights.length;
     state.rowHeights = result.rowHeights;
+    state.rowStats = result.rowStats;
+    state.clipPercent = clipPercent;
     state.lastError = '';
     state.lastApplyAt = Date.now();
   } finally {
@@ -371,6 +549,7 @@ function btApply() {
       item.style.removeProperty('height');
       item.style.removeProperty('transform');
       item.style.width = `${info.columnWidth}px`;
+      item.classList.remove(NATIVE_CLIP_CLASS);
       const clamp = clampElement(item);
       if (clamp) clamp.el.style.setProperty('-webkit-line-clamp', String(clamp.base));
       setCloneCoverRatio(item);
@@ -380,13 +559,14 @@ function btApply() {
       const card = item.querySelector('.opus-card');
       return Math.round(card ? card.offsetHeight : item.getBoundingClientRect().height);
     });
-    const result = layoutRows(
+    const result = layoutRowsWithClip(
       naturalHeights.map((height) => ({ height })),
       {
         columnWidth: info.columnWidth,
         columns: info.columns,
         rowGutter: DEFAULT_ROW_GUTTER,
         columnGutter: DEFAULT_COLUMN_GUTTER,
+        clipPercent,
       },
     );
     btGrid.classList.add(BT_ROOT_CLASS);
@@ -396,11 +576,15 @@ function btApply() {
       const pos = result.positions[index];
       item.style.height = `${pos.height}px`;
       item.style.transform = `translate(${pos.left}px, ${pos.top}px)`;
-      const extra = Math.max(0, pos.height - naturalHeights[index]);
       const clamp = clampElement(item);
-      if (clamp && extra > 0) {
-        const lines = clamp.base + Math.min(20, Math.floor(extra / clamp.lineHeight));
-        clamp.el.style.setProperty('-webkit-line-clamp', String(lines));
+      if (clamp) clamp.el.style.setProperty('-webkit-line-clamp', String(clamp.base));
+      const rowIndex = Math.floor(index / info.columns);
+      const stat = result.rowStats[rowIndex];
+      const useNativeClip = Boolean(stat && stat.clipped && naturalHeights[index] > stat.rowHeight);
+      if (useNativeClip) {
+        if (!applyNativeClip(item)) item.classList.remove(NATIVE_CLIP_CLASS);
+      } else {
+        item.classList.remove(NATIVE_CLIP_CLASS);
       }
     });
     state.active = true;
@@ -409,6 +593,8 @@ function btApply() {
     state.columns = info.columns;
     state.rows = result.rowHeights.length;
     state.rowHeights = result.rowHeights;
+    state.rowStats = result.rowStats;
+    state.clipPercent = clipPercent;
     state.lastError = '';
     state.lastApplyAt = Date.now();
     btIgnoreUntil = Date.now() + 200;
@@ -450,6 +636,7 @@ function detachBt() {
       item.style.removeProperty('height');
       item.style.removeProperty('transform');
       item.style.removeProperty('width');
+      item.classList.remove(NATIVE_CLIP_CLASS);
       const clamp = clampElement(item);
       if (clamp) clamp.el.style.setProperty('-webkit-line-clamp', String(clamp.base));
     }
@@ -597,9 +784,12 @@ function start() {
   if (running) return;
   running = true;
   startedAt = Date.now();
+  clipPercent = loadClipPercent();
+  state.clipPercent = clipPercent;
   addStyle(STYLE_ID, CSS);
   exposeDebug();
-  log.info(`统一行高脚本 v${VERSION} 启动`);
+  registerClipMenu();
+  log.info(`统一行高脚本 v${VERSION} 启动`, { clipPercent });
   mainTimer = setInterval(() => {
     const next = findTarget();
     attachTarget(next);
@@ -625,6 +815,7 @@ function stop() {
   }
   detachBt();
   detachSource();
+  unregisterClipMenu();
   state.lastError = '';
   log.info('统一行高脚本已停止');
 }
