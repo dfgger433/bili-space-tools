@@ -155,19 +155,19 @@ test('瀑布流：等高时前 10 条行优先', () => {
   assert.equal(layout.width, 4 * cw + 3 * g);
 });
 
-test('统一行高：行高取该行最高卡片，封面高度按行统一', () => {
+test('统一行高：行高取该行最高卡片', () => {
   const items = [
-    { height: 140, textHeight: 30, cover: {} },
-    { height: 100, textHeight: 30, cover: {} },
-    { height: 120, textHeight: 20, cover: {} },
-    { height: 90, textHeight: 40, cover: {} },
-    { height: 80, textHeight: 20, cover: {} },
+    { height: 140 },
+    { height: 100 },
+    { height: 120 },
+    { height: 90 },
+    { height: 80 },
   ];
   const layout = layoutRows(items, { columnWidth: 200, columns: 3, columnGutter: 20, rowGutter: 18 });
-  assert.deepEqual(layout.rowHeights, [140, 100]);
+  assert.deepEqual(layout.rowHeights, [140, 90]);
   assert.deepEqual(
     layout.positions.map((p) => p.height),
-    [140, 140, 140, 100, 100],
+    [140, 140, 140, 90, 90],
   );
   assert.deepEqual(
     layout.positions.map((p) => p.left),
@@ -177,28 +177,21 @@ test('统一行高：行高取该行最高卡片，封面高度按行统一', ()
     layout.positions.map((p) => p.top),
     [0, 0, 0, 158, 158],
   );
-  // 第一行封面 = 140 - 30 = 110；第二行 90-40=50 小于最小封面 60，行高撑到 100，封面 60
   assert.deepEqual(
-    layout.positions.map((p) => p.coverHeight),
-    [110, 110, 110, 60, 60],
+    layout.positions.map((p) => p.row),
+    [0, 0, 0, 1, 1],
   );
   assert.equal(layout.width, 3 * 200 + 2 * 20);
-  assert.equal(layout.height, 140 + 18 + 100);
+  assert.equal(layout.height, 140 + 18 + 90);
 });
 
-test('统一行高：文字卡片封面高度为 0', () => {
-  const items = [
-    { height: 120, textHeight: 80 },
-    { height: 100, textHeight: 40 },
-    { height: 140, textHeight: 60 },
-  ];
+test('统一行高：最后一行不足列数', () => {
+  const items = Array.from({ length: 5 }, () => ({ height: 100 }));
   const layout = layoutRows(items, { columnWidth: 200, columns: 3, rowGutter: 18 });
-  assert.equal(layout.rowHeights[0], 140);
-  assert.deepEqual(
-    layout.positions.map((p) => p.coverHeight),
-    [0, 0, 0],
-  );
-  assert.equal(layout.height, 140);
+  assert.equal(layout.rowHeights.length, 2);
+  assert.equal(layout.positions[3].left, 0);
+  assert.equal(layout.positions[4].left, 220);
+  assert.equal(layout.height, 100 + 18 + 100);
 });
 
 test('瀑布流：高度不同时不重叠且落在最短列', () => {

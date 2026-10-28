@@ -354,10 +354,22 @@ async function runUniformRowsTest(browser, base) {
         const top = Math.round((rect.top + window.scrollY) * 100) / 100;
         if (!groups.has(top)) groups.set(top, []);
         const coverEl = el.querySelector('.bili-cover-card');
+        const coverStyle = coverEl ? coverEl.getAttribute('style') || '' : '';
+        const ratioMatch = coverStyle.match(/--bili-cover-card-ratio:\s*([\d.]+)%/);
+        const titleEl = el.querySelector('.bt-opus-title-text');
+        const textEl = el.querySelector('.bt-opus-text-clamp');
+        const clampEl = titleEl || textEl;
+        const clamp = clampEl
+          ? Number(clampEl.style.getPropertyValue('-webkit-line-clamp') || 0)
+          : 0;
         groups.get(top).push({
           height: Math.round(rect.height * 100) / 100,
           left: Math.round(rect.left * 100) / 100,
           cover: Math.round((coverEl?.getBoundingClientRect().height || 0) * 100) / 100,
+          ratio: ratioMatch ? Number(ratioMatch[1]) : 0,
+          clamp,
+          baseClamp: titleEl ? 2 : textEl ? 3 : 0,
+          objectFit: coverEl?.querySelector('img') ? getComputedStyle(coverEl.querySelector('img')).objectFit : '',
         });
       }
       return Array.from(groups.entries())
@@ -367,15 +379,22 @@ async function runUniformRowsTest(browser, base) {
 
   const assertRows = (rows, columns, label) => {
     assert.equal(rows.length, Math.ceil(20 / columns), `${label}：行数`);
+    let expanded = 0;
     for (let i = 0; i < rows.length; i += 1) {
       const row = rows[i];
       const height = row.list[0].height;
       for (const item of row.list) {
         assert.ok(Math.abs(item.height - height) <= 1, `${label} 第 ${i + 1} 行卡片高度应一致`);
-      }
-      const covers = row.list.map((item) => item.cover).filter((v) => v > 0);
-      for (const cover of covers) {
-        assert.ok(Math.abs(cover - covers[0]) <= 1, `${label} 第 ${i + 1} 行封面高度应一致`);
+        if (item.cover > 0) {
+          assert.equal(item.objectFit, 'contain', `${label} 封面应完整显示（不裁剪）`);
+          // 封面保持原始比例：高度应约等于列宽 * 比例，而不是被强制成行高
+          const expected = (st.columnWidth * item.ratio) / 100;
+          assert.ok(
+            Math.abs(item.cover - expected) <= 2,
+            `${label} 第 ${i + 1} 行封面应保持原始比例（${item.cover} vs ${expected}）`,
+          );
+        }
+        if (item.clamp > item.baseClamp) expanded += 1;
       }
       for (let j = 1; j < row.list.length; j += 1) {
         assert.ok(row.list[j].left > row.list[j - 1].left, `${label} 第 ${i + 1} 行从左到右排列`);
@@ -386,6 +405,7 @@ async function runUniformRowsTest(browser, base) {
       const prevBottom = prev.top + prev.list[0].height;
       assert.ok(rows[i].top >= prevBottom, `${label}：行之间不应重叠`);
     }
+    assert.ok(expanded > 0, `${label}：应有卡片用被省略的文字填充行高`);
   };
 
   const rows1 = await readRows();

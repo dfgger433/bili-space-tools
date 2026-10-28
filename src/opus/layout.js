@@ -99,10 +99,10 @@ export function slicePage(items, page, pageSize) {
 }
 
 /**
- * 统一行高布局（阶段 3）：每列数为一组，行高取该行最高卡片；封面高度取行内统一值
- * （行高 - 行内最大文字块高度），让同一行的封面底部/标题起始线对齐，行尾不足由空白补齐。
- * @param {Array<{height:number,textHeight?:number,cover?:object}>} items
- * @returns {{positions:Array<{left:number,top:number,height:number,coverHeight:number,row:number}>, rowHeights:number[], width:number, height:number}}
+ * 统一行高布局（阶段 3）：每列数为一组，行高取该行最高卡片；封面保持原始比例，不裁剪，
+ * 行内剩余高度由渲染层决定（优先展示被省略的标题/正文，没内容就留白）。
+ * @param {Array<{height:number}>} items
+ * @returns {{positions:Array<{left:number,top:number,height:number,row:number}>, rowHeights:number[], width:number, height:number}}
  */
 export function layoutRows(
   items,
@@ -111,7 +111,6 @@ export function layoutRows(
     columns,
     rowGutter = DEFAULT_ROW_GUTTER,
     columnGutter = DEFAULT_COLUMN_GUTTER,
-    minCoverHeight = 60,
   } = {},
 ) {
   const list = items || [];
@@ -124,23 +123,13 @@ export function layoutRows(
   for (let start = 0; start < list.length; start += m) {
     const row = list.slice(start, start + m);
     const rowIndex = rowHeights.length;
-    const maxText = row.reduce(
-      (max, item) => Math.max(max, Number(item && item.textHeight) || 0),
-      0,
-    );
-    let rowHeight = row.reduce((max, item) => Math.max(max, Number(item && item.height) || 0), 0);
-    let coverHeight = Math.max(0, rowHeight - maxText);
-    if (row.some((item) => item && item.cover) && coverHeight < minCoverHeight) {
-      coverHeight = minCoverHeight;
-      rowHeight = Math.max(rowHeight, coverHeight + maxText);
-    }
+    const rowHeight = row.reduce((max, item) => Math.max(max, Number(item && item.height) || 0), 0);
     rowHeights.push(rowHeight);
     row.forEach((item, column) => {
       positions[start + column] = {
         left: column * (cw + columnGutter),
         top,
         height: rowHeight,
-        coverHeight: item && item.cover ? Math.round(coverHeight) : 0,
         row: rowIndex,
       };
     });

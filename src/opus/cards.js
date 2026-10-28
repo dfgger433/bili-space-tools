@@ -61,16 +61,10 @@ function buildCoverCard(item, options = {}) {
   const ratio = cover.width > 0 && cover.height > 0 ? (cover.height / cover.width) * 100 : 100;
   const section = create('div', { className: 'opus-card--with-cover' });
 
-  const coverStyle = { '--bili-cover-card-ratio': `${ratio.toFixed(4)}%` };
-  if (options.coverHeight > 0) {
-    // 统一行高模式：封面高度由行内文字块决定，padding-top 比例占位改为固定高度
-    coverStyle.height = `${Math.round(options.coverHeight)}px`;
-    coverStyle['padding-top'] = '0px';
-  }
   const coverEl = create('a', {
     className: 'bili-cover-card opus-card__cover',
     attrs: { href, target: '_blank', rel: 'noopener noreferrer' },
-    style: coverStyle,
+    style: { '--bili-cover-card-ratio': `${ratio.toFixed(4)}%` },
   });
   const thumb = create('div', { className: 'bili-cover-card__thumbnail' });
   thumb.appendChild(
@@ -91,13 +85,17 @@ function buildCoverCard(item, options = {}) {
     className: 'opus-card__title',
     attrs: { href, target: '_blank', rel: 'noopener noreferrer' },
   });
-  titleEl.appendChild(create('div', { className: 'bt-opus-title-text', text: title }));
+  // 行高有富余时展开标题的省略行，把原本被裁掉的文字显示出来（标题行高 16.8px）
+  const extraLines = options.extraHeight > 0 ? Math.floor(options.extraHeight / 16.8) : 0;
+  const titleTextStyle =
+    extraLines > 0 ? { '-webkit-line-clamp': String(2 + Math.min(20, extraLines)) } : undefined;
+  titleEl.appendChild(create('div', { className: 'bt-opus-title-text', text: title, style: titleTextStyle }));
   section.appendChild(titleEl);
 
   return section;
 }
 
-function buildTextCard(item) {
+function buildTextCard(item, options = {}) {
   const view = item.view || {};
   const href = normalizeHref(view.jump_url);
   const title = view.content || '';
@@ -115,7 +113,11 @@ function buildTextCard(item) {
     link.appendChild(badgeEl);
   }
   const textWrap = create('div', { className: 'opus-card__text' });
-  textWrap.appendChild(create('div', { className: 'bt-opus-text-clamp', text: title }));
+  // 正文行高 20px；用行高富余展开被裁掉的正文
+  const extraLines = options.extraHeight > 0 ? Math.floor(options.extraHeight / 20) : 0;
+  const textStyle =
+    extraLines > 0 ? { '-webkit-line-clamp': String(3 + Math.min(20, extraLines)) } : undefined;
+  textWrap.appendChild(create('div', { className: 'bt-opus-text-clamp', text: title, style: textStyle }));
   link.appendChild(textWrap);
   section.appendChild(link);
 
@@ -134,7 +136,7 @@ export function buildOpusCard(item, options = {}) {
     className: 'opus-card',
     attrs: { 'data-bt-key': item.key || '' },
   });
-  root.appendChild(item.cover && item.cover.src ? buildCoverCard(item, options) : buildTextCard(item));
+  root.appendChild(item.cover && item.cover.src ? buildCoverCard(item, options) : buildTextCard(item, options));
 
   const view = item.view || {};
   const meta = [view.author, view.pub_time].filter(Boolean).join(' · ');

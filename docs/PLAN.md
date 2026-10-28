@@ -64,11 +64,11 @@
 - 复用 `src/shared/`：`pager.js`、`dom.js`、`log.js`、`style.js`、`toast.js`（均已通过阶段 1 测试）。
 - 测试：`npm run test:e2e:opus`（Vue 通道、网络通道、预取、切 tab、resize、重复注入）+ 单元测试（布局/高度/URL/分页）。
 
-## 3. 阶段 3：统一行高（v0.5.0）
+## 3. 阶段 3：统一行高（v0.5.1）
 
 - `layoutRows` 模式：每行 = 列数条；行高 = 该行卡片自然高度最大值（以最高为准）。
-- 行内封面统一高度（行高 - 该行最大文字块高度），封面 `object-fit: cover` 裁剪填充，标题起始线对齐；
-  纯文字卡片灰色背景撑满行高。
+- 封面保留原始宽高比、不裁剪（`object-fit: contain`）；图片加载后按真实宽高重新排版。
+  行高富余时展开被省略的标题/正文，没内容则留白；纯文字卡片灰色背景撑满行高。
 - 通过 esbuild define（`__BT_UNIFORM_ROWS__`）从同一份源码构建阶段 2（瀑布流）/阶段 3（统一行高）两个脚本；
   测试阶段 3 时禁用阶段 2 脚本。
 
@@ -89,6 +89,7 @@
 - 每个交付脚本都带完整 UserScript 头；安装新阶段时禁用上一阶段即可。
 - 调试：`window.BILI_TOOLS` 暴露状态与自检；`localStorage["biliTools:debug"]="1"` 打日志。
 - 测试：`node --test` 单元测试 + `playwright-core`（本机 Chrome）假页 e2e + 截图；真实登录场景由用户实测。
+
 
 
 

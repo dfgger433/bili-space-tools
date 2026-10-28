@@ -4,7 +4,7 @@
 // @name         B站图文统一行高（每页20条）
 // @name:zh-CN   B站图文统一行高（每页20条）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.5.0
+// @version      0.5.1
 // @description  在图文翻页（每页 20 条）基础上，同一行卡片高度统一为该行最高卡片；封面按行统一高度并裁剪填充，标题起始线对齐；保留原生自动加载预取与图片压缩菜单。
 // @description:zh-CN 在图文翻页（每页 20 条）基础上，同一行卡片高度统一为该行最高卡片；封面按行统一高度并裁剪填充，标题起始线对齐；保留原生自动加载预取与图片压缩菜单。
 // @author       bili-space-tools
@@ -548,8 +548,7 @@
       view: view || {},
       cover,
       width: columnWidth,
-      height: natural.height,
-      textHeight: Math.max(0, natural.height - natural.coverHeight)
+      height: natural.height
     };
   }
   function fromInstanceItem(item, fallbackIndex) {
@@ -584,11 +583,7 @@
       view,
       cover,
       width: Number(item && item.width) || 0,
-      height: Number(item && item.height) || 0,
-      textHeight: Math.max(
-        0,
-        (Number(item && item.height) || 0) - (Number(cover && cover.height) || 0)
-      )
+      height: Number(item && item.height) || 0
     };
   }
   function statText(value) {
@@ -674,8 +669,7 @@
     columnWidth,
     columns,
     rowGutter = DEFAULT_ROW_GUTTER,
-    columnGutter = DEFAULT_COLUMN_GUTTER,
-    minCoverHeight = 60
+    columnGutter = DEFAULT_COLUMN_GUTTER
   } = {}) {
     const list = items || [];
     const cw = Number(columnWidth) || 0;
@@ -686,23 +680,13 @@
     for (let start = 0; start < list.length; start += m) {
       const row = list.slice(start, start + m);
       const rowIndex = rowHeights.length;
-      const maxText = row.reduce(
-        (max, item) => Math.max(max, Number(item && item.textHeight) || 0),
-        0
-      );
-      let rowHeight = row.reduce((max, item) => Math.max(max, Number(item && item.height) || 0), 0);
-      let coverHeight = Math.max(0, rowHeight - maxText);
-      if (row.some((item) => item && item.cover) && coverHeight < minCoverHeight) {
-        coverHeight = minCoverHeight;
-        rowHeight = Math.max(rowHeight, coverHeight + maxText);
-      }
+      const rowHeight = row.reduce((max, item) => Math.max(max, Number(item && item.height) || 0), 0);
       rowHeights.push(rowHeight);
       row.forEach((item, column) => {
         positions[start + column] = {
           left: column * (cw + columnGutter),
           top,
           height: rowHeight,
-          coverHeight: item && item.cover ? Math.round(coverHeight) : 0,
           row: rowIndex
         };
       });
@@ -774,15 +758,10 @@
     const src = coverDisplaySrc(cover, options.compressImages !== false);
     const ratio = cover.width > 0 && cover.height > 0 ? cover.height / cover.width * 100 : 100;
     const section = create("div", { className: "opus-card--with-cover" });
-    const coverStyle = { "--bili-cover-card-ratio": `${ratio.toFixed(4)}%` };
-    if (options.coverHeight > 0) {
-      coverStyle.height = `${Math.round(options.coverHeight)}px`;
-      coverStyle["padding-top"] = "0px";
-    }
     const coverEl = create("a", {
       className: "bili-cover-card opus-card__cover",
       attrs: { href, target: "_blank", rel: "noopener noreferrer" },
-      style: coverStyle
+      style: { "--bili-cover-card-ratio": `${ratio.toFixed(4)}%` }
     });
     const thumb = create("div", { className: "bili-cover-card__thumbnail" });
     thumb.appendChild(
@@ -802,11 +781,13 @@
       className: "opus-card__title",
       attrs: { href, target: "_blank", rel: "noopener noreferrer" }
     });
-    titleEl.appendChild(create("div", { className: "bt-opus-title-text", text: title }));
+    const extraLines = options.extraHeight > 0 ? Math.floor(options.extraHeight / 16.8) : 0;
+    const titleTextStyle = extraLines > 0 ? { "-webkit-line-clamp": String(2 + Math.min(20, extraLines)) } : void 0;
+    titleEl.appendChild(create("div", { className: "bt-opus-title-text", text: title, style: titleTextStyle }));
     section.appendChild(titleEl);
     return section;
   }
-  function buildTextCard(item) {
+  function buildTextCard(item, options = {}) {
     const view = item.view || {};
     const href = normalizeHref(view.jump_url);
     const title = view.content || "";
@@ -823,7 +804,9 @@
       link.appendChild(badgeEl);
     }
     const textWrap = create("div", { className: "opus-card__text" });
-    textWrap.appendChild(create("div", { className: "bt-opus-text-clamp", text: title }));
+    const extraLines = options.extraHeight > 0 ? Math.floor(options.extraHeight / 20) : 0;
+    const textStyle = extraLines > 0 ? { "-webkit-line-clamp": String(3 + Math.min(20, extraLines)) } : void 0;
+    textWrap.appendChild(create("div", { className: "bt-opus-text-clamp", text: title, style: textStyle }));
     link.appendChild(textWrap);
     section.appendChild(link);
     const stat = view.stat || {};
@@ -838,7 +821,7 @@
       className: "opus-card",
       attrs: { "data-bt-key": item.key || "" }
     });
-    root.appendChild(item.cover && item.cover.src ? buildCoverCard(item, options) : buildTextCard(item));
+    root.appendChild(item.cover && item.cover.src ? buildCoverCard(item, options) : buildTextCard(item, options));
     const view = item.view || {};
     const meta = [view.author, view.pub_time].filter(Boolean).join(" · ");
     if (meta) {
@@ -1183,7 +1166,7 @@
 
   // src/scripts/opus-pagination.js
   var UNIFORM_ROWS = Boolean(true);
-  var VERSION = true ? String("0.5.0") : "0.4.0";
+  var VERSION = true ? String("0.5.1") : "0.4.0";
   var SCOPE = "opus";
   var STYLE_ID2 = "bili-tools-opus-style";
   var ACTIVE_CLASS = "bili-tools-opus-active";
@@ -1217,6 +1200,10 @@
     gridEl: null,
     pager: null,
     settings: loadSettings(),
+    // 阶段 3：图片真实宽高（key → {naturalWidth, naturalHeight}），用于按原始比例显示封面
+    actualCovers: /* @__PURE__ */ new Map(),
+    coverLoadBound: false,
+    layoutFixTimer: null,
     routeKey: "",
     nextBootAt: 0,
     observer: null,
@@ -1234,11 +1221,11 @@
 .bt-opus-title-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;line-break:anywhere}
 .bt-opus-text-clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;line-break:anywhere;white-space:pre-wrap}
 .bt-opus-item .opus-card{width:100%}
-/* 阶段 3：统一行高（行高 = 该行最高卡片；封面高度统一，标题起始线对齐） */
-.bt-opus-rows .bt-opus-item .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start}
+/* 阶段 3：统一行高（行高 = 该行最高卡片；封面保持原始比例，不裁剪；剩余高度显示被省略的文字） */
+.bt-opus-rows .bt-opus-item .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
 .bt-opus-rows .bt-opus-item .bili-cover-card{overflow:hidden}
 .bt-opus-rows .bt-opus-item .bili-cover-card__thumbnail{height:100%}
-.bt-opus-rows .bt-opus-item .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:cover}
+.bt-opus-rows .bt-opus-item .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:contain}
 .bt-opus-rows .bt-opus-item .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .bt-opus-rows .bt-opus-item .opus-card--only-text .opus-card__icons{margin-top:auto}
 .bt-opus-pager{margin:8px auto 24px}
@@ -1373,6 +1360,17 @@
       state.gridEl = create("div", { className: "bt-opus-grid" });
       state.wrapEl.appendChild(state.gridEl);
     }
+    if (UNIFORM_ROWS && !state.coverLoadBound) {
+      state.coverLoadBound = true;
+      state.gridEl.addEventListener(
+        "load",
+        (event) => {
+          const img = event.target;
+          if (img && img.tagName === "IMG") onCoverImageLoad(img);
+        },
+        true
+      );
+    }
     const parent = feed.parentElement;
     if (parent && (state.wrapEl.parentElement !== parent || state.wrapEl.previousElementSibling !== feed)) {
       parent.insertBefore(state.wrapEl, feed.nextSibling);
@@ -1496,6 +1494,7 @@
     }
     if (loaded < state.lastLoaded) state.page = 1;
     state.items = items;
+    applyActualCoverSizes(items);
     state.loaded = loaded;
     state.lastLoaded = loaded;
     state.cw = layout.columnWidth;
@@ -1527,6 +1526,42 @@
       img.decoding = "async";
       img.src = src;
     }
+  }
+  function applyActualCoverSizes(items) {
+    if (!UNIFORM_ROWS) return;
+    for (const item of items) {
+      if (!item || !item.cover || !(item.cover.width > 0)) continue;
+      const actual = state.actualCovers.get(item.key);
+      if (!actual || !actual.naturalWidth) continue;
+      const textHeight = Math.max(
+        0,
+        (Number(item.height) || 0) - (Number(item.cover.height) || 0)
+      );
+      const coverHeight = item.cover.width * actual.naturalHeight / actual.naturalWidth;
+      item.cover.height = coverHeight;
+      item.cover.naturalWidth = actual.naturalWidth;
+      item.cover.naturalHeight = actual.naturalHeight;
+      item.height = textHeight + coverHeight;
+    }
+  }
+  function onCoverImageLoad(img) {
+    if (!UNIFORM_ROWS || !state.active) return;
+    const card = img.closest(".opus-card");
+    const key = card && card.getAttribute("data-bt-key");
+    if (!key || !img.naturalWidth || !img.naturalHeight) return;
+    const prev = state.actualCovers.get(key);
+    if (prev && prev.naturalWidth === img.naturalWidth && prev.naturalHeight === img.naturalHeight) {
+      return;
+    }
+    state.actualCovers.set(key, {
+      naturalWidth: img.naturalWidth,
+      naturalHeight: img.naturalHeight
+    });
+    if (state.layoutFixTimer) clearTimeout(state.layoutFixTimer);
+    state.layoutFixTimer = setTimeout(() => {
+      state.layoutFixTimer = null;
+      if (state.active) refresh(true);
+    }, 120);
   }
   function currentSlice() {
     let page = state.page;
@@ -1572,18 +1607,20 @@
     const frag = document.createDocumentFragment();
     slice.forEach((item, index) => {
       const pos = layout.positions[index] || { left: 0, top: 0 };
+      const itemHeight = Math.max(0, pos.height || item.height);
+      const extra = Math.max(0, itemHeight - (Number(item.height) || 0));
       const el = create("div", {
         className: "bt-opus-item",
         style: {
           width: `${state.cw}px`,
-          height: `${Math.max(0, pos.height || item.height)}px`,
+          height: `${itemHeight}px`,
           transform: `translate(${pos.left}px, ${pos.top}px)`
         }
       });
       el.appendChild(
         buildOpusCard(item, {
           compressImages: Boolean(state.settings.compressImages),
-          coverHeight: pos.coverHeight || 0
+          extraHeight: extra
         })
       );
       frag.appendChild(el);
@@ -1764,6 +1801,10 @@
       clearTimeout(state.resizeTimer);
       state.resizeTimer = null;
     }
+    if (state.layoutFixTimer) {
+      clearTimeout(state.layoutFixTimer);
+      state.layoutFixTimer = null;
+    }
     if (state.pager) {
       state.pager.destroy();
       state.pager = null;
@@ -1789,6 +1830,7 @@
       tab: "",
       busy: false,
       busyText: "",
+      coverLoadBound: false,
       renderKey: "",
       feedEl: null,
       opusEl: null
