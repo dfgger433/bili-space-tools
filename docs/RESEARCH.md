@@ -193,6 +193,17 @@ const build = (view) => {
 
 （公式来自 `updateColumnWidth(total, cols, gutter)` = `(total - gutter*(cols-1)) / cols`。）
 
+#### 3.3.1 每次自动加载的条数（2026-10-28 实测）
+
+- 用 `buvid3/buvid4`（`/x/frontend/finger/spi`）匿名请求 `/x/polymer/web-dynamic/v1/opus/feed/space`（无需 wbi）：
+  - `host_mid=631063962&type=all`：page 1–4 每页都是 **20 条**，`has_more=true`，`offset` 19 位；
+  - `type=dynamic` 同样 20 条/页；`type=article` 满页时也是 20（该用户只有 13 篇，所以返回 13）。
+- 结论：**B 站图文列表每次自动加载 20 条**（首屏若渲染高度不足一屏，页面会再自动加载一次，最多首屏 40 条）。
+- 响应 item 形状（实测）：`{jump_url, opus_id, content, badge, author, cover:{url,width,height}, stat:{view,like}, pub_time}`；
+  `author/pub_time` 可能为空字符串，`jump_url` 是协议相对地址（`//www.bilibili.com/opus/...`）。
+- 对阶段 2 的建议：与动态页一致，页大小取自动加载批次 **20**，保留原生自动加载作为下一页预取。
+
+
 ### 3.4 卡片 DOM / CSS（原生）
 
 ```html

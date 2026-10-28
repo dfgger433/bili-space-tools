@@ -34,13 +34,18 @@
 - [x] commit + tag `v0.2.0`
 - [ ] 用户真实页面实测（等待反馈）
 
-## 阶段 2：图文页翻页（42 条/页）
+## 阶段 2：图文页翻页（分支 `feat/opus-pagination`）
 
+> 2026-10-28 实测：B 站图文列表每次自动加载 **20 条**（type=all/dynamic 均 20/页，article 满页也是 20）。
+> 建议沿用动态页策略：每页 20 条 + 保留原生自动加载作为下一页预取。复用 `src/shared/` 已验证部件。
+
+- [ ] 复用已验证部件：`shared/pager.js`（原生分页条）、`shared/dom.js`、`shared/log.js`、`shared/style.js`、`shared/toast.js`
+- [ ] 复用动态页已验证模式：预取数据不进当前页、原生加载条隐藏、`ERROR/PAUSED` 可重试、重复注入保护
 - [ ] 数据通道 A：Vue 实例（`WaterfallGrid` 定位、`props.list`、`onLoadMore`）
 - [ ] 数据通道 B：XHR/fetch 抓包 + 原生高度公式
 - [ ] 原生卡片 DOM 重建（有封面 / 纯文字 / 徽章 / 统计 / 副标题）
 - [ ] 原生瀑布流布局复刻（threshold 10 + 最短列）
-- [ ] 接管渲染 + 隐藏原生 feed + 分页条（42/页）
+- [ ] 接管渲染 + 隐藏原生 feed + 分页条（20/页，待用户确认）
 - [ ] resize / tab 切换 / 失败回退
 - [ ] 假页 e2e + 卡片视觉截图
 - [ ] 构建 `dist/02-图文翻页.user.js`，交付实测
