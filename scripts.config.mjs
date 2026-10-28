@@ -28,6 +28,10 @@ export const scripts = [
     id: 'opus-pagination',
     entry: 'src/scripts/opus-pagination.js',
     outfile: 'dist/02-图文翻页.user.js',
+    define: {
+      __BT_UNIFORM_ROWS__: 'false',
+      __BT_VERSION__: '"0.4.0"',
+    },
     meta: {
       name: 'B站图文翻页（每页20条）',
       nameZh: 'B站图文翻页（每页20条）',
@@ -44,6 +48,39 @@ export const scripts = [
       ],
       runAt: 'document-start',
       // 用 unsafeWindow 访问页面 XHR / Vue 实例；菜单/设置走 GM API
+      grants: [
+        'unsafeWindow',
+        'GM_registerMenuCommand',
+        'GM_unregisterMenuCommand',
+        'GM_getValue',
+        'GM_setValue',
+      ],
+      noframes: true,
+    },
+  },
+  {
+    id: 'opus-uniform-row',
+    entry: 'src/scripts/opus-pagination.js',
+    outfile: 'dist/03-图文统一行高.user.js',
+    define: {
+      __BT_UNIFORM_ROWS__: 'true',
+      __BT_VERSION__: '"0.5.0"',
+    },
+    meta: {
+      name: 'B站图文统一行高（每页20条）',
+      nameZh: 'B站图文统一行高（每页20条）',
+      namespace: 'https://github.com/bili-space-tools/bili-space-tools',
+      version: '0.5.0',
+      description: '在图文翻页（每页 20 条）基础上，同一行卡片高度统一为该行最高卡片；封面按行统一高度并裁剪填充，标题起始线对齐；保留原生自动加载预取与图片压缩菜单。',
+      descriptionZh: '在图文翻页（每页 20 条）基础上，同一行卡片高度统一为该行最高卡片；封面按行统一高度并裁剪填充，标题起始线对齐；保留原生自动加载预取与图片压缩菜单。',
+      author: 'bili-space-tools',
+      license: 'MIT',
+      icon: 'https://www.bilibili.com/favicon.ico',
+      match: [
+        '*://*.bilibili.com/*/upload/opus',
+        '*://*.bilibili.com/*/upload/opus/*',
+      ],
+      runAt: 'document-start',
       grants: [
         'unsafeWindow',
         'GM_registerMenuCommand',

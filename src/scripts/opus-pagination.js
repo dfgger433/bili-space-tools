@@ -11,6 +11,7 @@ import { PAGE_SIZE, DEFAULT_COLUMN_GUTTER, DEFAULT_ROW_GUTTER, coverDisplaySrc }
 import {
   computeColumnWidth,
   columnsForWidth,
+  layoutRows,
   layoutWaterfall,
   totalPages,
 } from '../opus/layout.js';
@@ -24,7 +25,8 @@ import {
   findWaterfall,
 } from '../opus/adapter.js';
 
-const VERSION = '0.4.0';
+const UNIFORM_ROWS = typeof __BT_UNIFORM_ROWS__ !== 'undefined' && Boolean(__BT_UNIFORM_ROWS__);
+const VERSION = typeof __BT_VERSION__ !== 'undefined' ? String(__BT_VERSION__) : '0.4.0';
 const SCOPE = 'opus';
 const STYLE_ID = 'bili-tools-opus-style';
 const ACTIVE_CLASS = 'bili-tools-opus-active';
@@ -78,6 +80,13 @@ const CSS = `
 .bt-opus-title-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;line-break:anywhere}
 .bt-opus-text-clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;line-break:anywhere;white-space:pre-wrap}
 .bt-opus-item .opus-card{width:100%}
+/* 阶段 3：统一行高（行高 = 该行最高卡片；封面高度统一，标题起始线对齐） */
+.bt-opus-rows .bt-opus-item .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start}
+.bt-opus-rows .bt-opus-item .bili-cover-card{overflow:hidden}
+.bt-opus-rows .bt-opus-item .bili-cover-card__thumbnail{height:100%}
+.bt-opus-rows .bt-opus-item .bili-cover-card__thumbnail img{width:100%;height:100%;object-fit:cover}
+.bt-opus-rows .bt-opus-item .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+.bt-opus-rows .bt-opus-item .opus-card--only-text .opus-card__icons{margin-top:auto}
 .bt-opus-pager{margin:8px auto 24px}
 .bt-opus-pager .vui_pagenation--btn-side.vui_button--disabled,
 .bt-opus-pager .vui_pagenation--btn-more.vui_button--disabled{display:none}
@@ -438,12 +447,20 @@ function maybeRender(force = false) {
 function renderGrid(slice) {
   const grid = state.gridEl;
   if (!grid) return;
-  const layout = layoutWaterfall(slice, {
-    columnWidth: state.cw,
-    columns: state.columns,
-    rowGutter: DEFAULT_ROW_GUTTER,
-    columnGutter: DEFAULT_COLUMN_GUTTER,
-  });
+  const layout = UNIFORM_ROWS
+    ? layoutRows(slice, {
+        columnWidth: state.cw,
+        columns: state.columns,
+        rowGutter: DEFAULT_ROW_GUTTER,
+        columnGutter: DEFAULT_COLUMN_GUTTER,
+      })
+    : layoutWaterfall(slice, {
+        columnWidth: state.cw,
+        columns: state.columns,
+        rowGutter: DEFAULT_ROW_GUTTER,
+        columnGutter: DEFAULT_COLUMN_GUTTER,
+      });
+  grid.classList.toggle('bt-opus-rows', UNIFORM_ROWS);
   grid.style.width = `${layout.width}px`;
   grid.style.height = `${layout.height}px`;
   const frag = document.createDocumentFragment();
@@ -453,12 +470,15 @@ function renderGrid(slice) {
       className: 'bt-opus-item',
       style: {
         width: `${state.cw}px`,
-        height: `${Math.max(0, item.height)}px`,
+        height: `${Math.max(0, pos.height || item.height)}px`,
         transform: `translate(${pos.left}px, ${pos.top}px)`,
       },
     });
     el.appendChild(
-      buildOpusCard(item, { compressImages: Boolean(state.settings.compressImages) }),
+      buildOpusCard(item, {
+        compressImages: Boolean(state.settings.compressImages),
+        coverHeight: pos.coverHeight || 0,
+      }),
     );
     frag.appendChild(el);
   });

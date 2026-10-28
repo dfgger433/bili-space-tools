@@ -61,10 +61,16 @@ function buildCoverCard(item, options = {}) {
   const ratio = cover.width > 0 && cover.height > 0 ? (cover.height / cover.width) * 100 : 100;
   const section = create('div', { className: 'opus-card--with-cover' });
 
+  const coverStyle = { '--bili-cover-card-ratio': `${ratio.toFixed(4)}%` };
+  if (options.coverHeight > 0) {
+    // 统一行高模式：封面高度由行内文字块决定，padding-top 比例占位改为固定高度
+    coverStyle.height = `${Math.round(options.coverHeight)}px`;
+    coverStyle['padding-top'] = '0px';
+  }
   const coverEl = create('a', {
     className: 'bili-cover-card opus-card__cover',
     attrs: { href, target: '_blank', rel: 'noopener noreferrer' },
-    style: { '--bili-cover-card-ratio': `${ratio.toFixed(4)}%` },
+    style: coverStyle,
   });
   const thumb = create('div', { className: 'bili-cover-card__thumbnail' });
   thumb.appendChild(

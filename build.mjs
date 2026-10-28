@@ -41,6 +41,7 @@ async function main() {
       write: false,
       charset: 'utf8',
       legalComments: 'none',
+      define: script.define || {},
       banner: { js: bannerFor(script.meta) },
       logLevel: 'warning',
     });

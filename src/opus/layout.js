@@ -98,6 +98,63 @@ export function slicePage(items, page, pageSize) {
   return (items || []).slice(start, start + size);
 }
 
+/**
+ * 统一行高布局（阶段 3）：每列数为一组，行高取该行最高卡片；封面高度取行内统一值
+ * （行高 - 行内最大文字块高度），让同一行的封面底部/标题起始线对齐，行尾不足由空白补齐。
+ * @param {Array<{height:number,textHeight?:number,cover?:object}>} items
+ * @returns {{positions:Array<{left:number,top:number,height:number,coverHeight:number,row:number}>, rowHeights:number[], width:number, height:number}}
+ */
+export function layoutRows(
+  items,
+  {
+    columnWidth,
+    columns,
+    rowGutter = DEFAULT_ROW_GUTTER,
+    columnGutter = DEFAULT_COLUMN_GUTTER,
+    minCoverHeight = 60,
+  } = {},
+) {
+  const list = items || [];
+  const cw = Number(columnWidth) || 0;
+  const m = Math.max(1, Math.floor(Number(columns) || 1));
+  const positions = new Array(list.length);
+  const rowHeights = [];
+  let top = 0;
+
+  for (let start = 0; start < list.length; start += m) {
+    const row = list.slice(start, start + m);
+    const rowIndex = rowHeights.length;
+    const maxText = row.reduce(
+      (max, item) => Math.max(max, Number(item && item.textHeight) || 0),
+      0,
+    );
+    let rowHeight = row.reduce((max, item) => Math.max(max, Number(item && item.height) || 0), 0);
+    let coverHeight = Math.max(0, rowHeight - maxText);
+    if (row.some((item) => item && item.cover) && coverHeight < minCoverHeight) {
+      coverHeight = minCoverHeight;
+      rowHeight = Math.max(rowHeight, coverHeight + maxText);
+    }
+    rowHeights.push(rowHeight);
+    row.forEach((item, column) => {
+      positions[start + column] = {
+        left: column * (cw + columnGutter),
+        top,
+        height: rowHeight,
+        coverHeight: item && item.cover ? Math.round(coverHeight) : 0,
+        row: rowIndex,
+      };
+    });
+    top += rowHeight + rowGutter;
+  }
+
+  return {
+    positions,
+    rowHeights,
+    width: m * cw + (m - 1) * columnGutter,
+    height: Math.max(0, top - rowGutter),
+  };
+}
+
 export function totalPages(loadedCount, pageSize) {
   const size = Math.max(1, Math.floor(Number(pageSize) || 20));
   const count = Math.max(0, Math.floor(Number(loadedCount) || 0));

@@ -88,6 +88,7 @@ export function toItem(view, index, columnWidth) {
     cover,
     width: columnWidth,
     height: natural.height,
+    textHeight: Math.max(0, natural.height - natural.coverHeight),
   };
 }
 
@@ -125,6 +126,10 @@ export function fromInstanceItem(item, fallbackIndex) {
     cover,
     width: Number(item && item.width) || 0,
     height: Number(item && item.height) || 0,
+    textHeight: Math.max(
+      0,
+      (Number(item && item.height) || 0) - (Number(cover && cover.height) || 0),
+    ),
   };
 }
 
