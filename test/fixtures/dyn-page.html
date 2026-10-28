@@ -94,8 +94,10 @@
     loadingEl.style.display = status === 'LOADING' ? '' : 'none';
   }
 
+  window.__fakeLoadCalls = 0;
   function loadmore() {
     if (status === 'LOADING' || status === 'NO_MORE') return;
+    window.__fakeLoadCalls += 1;
     status = 'LOADING';
     render();
     const next = items.length + 1;
@@ -150,11 +152,10 @@
     window.scrollTo(0, 0);
   };
 
-  if (NOMV) {
-    window.addEventListener('scroll', function () {
-      if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 80) loadmore();
-    }, { passive: true });
-  }
+  // 模拟真实 B 站列表的“滚到底自动加载”（脚本保留该行为，用作下一页预取）
+  window.addEventListener('scroll', function () {
+    if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 80) vm.loadmore();
+  }, { passive: true });
 
   window.scrollTo(0, 0);
 })();

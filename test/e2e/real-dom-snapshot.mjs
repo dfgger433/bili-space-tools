@@ -80,7 +80,7 @@ async function main() {
           (el) => getComputedStyle(el).display !== 'none',
         ).length,
     );
-    assert.equal(visible, 10, '真实 DOM 下第 1 页应只显示 10 条');
+    assert.equal(visible, 12, '真实 DOM 下第 1 页应只显示 12 条');
     const pagerCount = await page.locator('.bili-tools-dyn-pager').count();
     assert.equal(pagerCount, 1, '真实 DOM 下应插入一个分页条');
     // 快照自带的图片/头像 onload 回调在禁用脚本后会报未定义，与本脚本无关

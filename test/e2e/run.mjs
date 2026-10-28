@@ -1,4 +1,5 @@
-// 阶段 1 浏览器端 e2e：用本机 Chrome/Edge 打开假动态页，注入构建后的 userscript，验证分页行为。
+// 阶段 1 e2e：用本机 Chrome/Edge 打开假动态页，注入构建后的 userscript，验证分页行为。
+// v0.2.0 行为：每页 12 条（与 B 站自动加载条数一致），保留原生自动加载作为下一页预取。
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import { access, mkdir } from 'node:fs/promises';
@@ -65,6 +66,22 @@ async function waitPage(page, expected) {
   await page.waitForTimeout(200);
 }
 
+async function waitLoaded(page, expected) {
+  await page.waitForFunction((n) => (window.BILI_TOOLS?.dyn?.state?.loaded ?? 0) >= n, expected, {
+    timeout: 25000,
+  });
+  await page.waitForTimeout(300);
+}
+
+async function pagerDocTop(page) {
+  return page.evaluate(() => {
+    const el = document.querySelector('.bili-tools-dyn-pager');
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    return Math.round((rect.top + window.scrollY) * 10) / 10;
+  });
+}
+
 function assertRange(actual, from, to, label) {
   const expected = [];
   for (let i = from; i <= to; i += 1) expected.push(i);
@@ -72,7 +89,7 @@ function assertRange(actual, from, to, label) {
 }
 
 async function runVmTest(browser, base) {
-  console.log('--- VM 模式测试 ---');
+  console.log('--- VM 模式测试（每页 12 条 + 原生预取）---');
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
   const pageErrors = [];
@@ -84,8 +101,9 @@ async function runVmTest(browser, base) {
   let st = await debugState(page);
   assert.equal(st.adapter, 'vm', '应走 VM 通道');
   assert.equal(st.page, 1);
+  assert.equal(st.loaded, 12, '初始正好 12 条');
   assert.equal(await totalCount(page), 12, '初始已加载 12 条');
-  assertRange(await visibleIndexes(page), 0, 9, '第 1 页');
+  assertRange(await visibleIndexes(page), 0, 11, '第 1 页（12 条）');
 
   const pager = page.locator('.bili-tools-dyn-pager');
   assert.equal(await pager.count(), 1, '应只有一个分页条');
@@ -93,16 +111,46 @@ async function runVmTest(browser, base) {
   assert.match(countText, /第 1 页/);
   assert.match(countText, /已加载 12 个/);
 
+  // 原生加载条应被隐藏（避免把分页条顶下去）
+  const loadingBarHidden = await page.evaluate(() => {
+    const el = document.querySelector('.bili-dyn-list-loading');
+    el.style.display = '';
+    return getComputedStyle(el).display === 'none';
+  });
+  assert.equal(loadingBarHidden, true, '启用分页后原生加载条应隐藏');
+
+  // 关键行为：滚到当前页底部 → B 站原生自动加载 12 条（正好是下一页），保留不禁止
+  const pagerTopBefore = await pagerDocTop(page);
+  await page.evaluate(() => {
+    window.__fakeLoadCalls = 0;
+    window.scrollTo(0, document.documentElement.scrollHeight);
+  });
+  await waitLoaded(page, 24);
+  assert.equal(await page.evaluate(() => window.__fakeLoadCalls), 1, '滚到底应触发一次原生自动加载');
+  st = await debugState(page);
+  assert.equal(st.loaded, 24, '预取后已加载 24 条');
+  assert.equal(st.page, 1, '预取不应改变当前页');
+  assertRange(await visibleIndexes(page), 0, 11, '预取的新条目应立即隐藏，当前页仍为 12 条');
+  const pagerTopAfter = await pagerDocTop(page);
+  assert.ok(
+    Math.abs(pagerTopAfter - pagerTopBefore) <= 2,
+    `分页条位置不应因预取变化（前 ${pagerTopBefore} / 后 ${pagerTopAfter}）`,
+  );
+  await page.screenshot({ path: path.join(SHOTS, 'dyn-prefetch-bottom.png'), fullPage: false });
+
+  // 下一页：预取已就绪，不应再发请求
   await page.locator('.bili-tools-dyn-pager .vui_pagenation--btn-side[aria-label="下一页"]').click();
   await waitPage(page, 2);
-  assertRange(await visibleIndexes(page), 10, 19, '第 2 页');
+  assertRange(await visibleIndexes(page), 12, 23, '第 2 页（12 条）');
   st = await debugState(page);
-  assert.equal(st.loaded, 24, '第 2 页应触发一次加载（12 → 24）');
+  assert.equal(st.loaded, 24, '预取已就绪，翻到第 2 页不应再加载');
+  assert.equal(await page.evaluate(() => window.__fakeLoadCalls), 1, '翻页不应触发额外加载');
   await page.screenshot({ path: path.join(SHOTS, 'dyn-vm-page2.png'), fullPage: true });
 
+  // 第 3 页：需要 36 条，只有 25 条 → 由分页按钮触发一次加载并到末页
   await page.locator('.bili-tools-dyn-pager .vui_pagenation--btn-side[aria-label="下一页"]').click();
   await waitPage(page, 3);
-  assertRange(await visibleIndexes(page), 20, 24, '第 3 页（末页）');
+  assertRange(await visibleIndexes(page), 24, 24, '第 3 页（末页只剩 1 条）');
   st = await debugState(page);
   assert.equal(st.totalPages, 3, '末页总页数应为 3');
   assert.equal(st.loaded, 25);
@@ -116,7 +164,7 @@ async function runVmTest(browser, base) {
   await input.fill('2');
   await input.press('Enter');
   await waitPage(page, 2);
-  assertRange(await visibleIndexes(page), 10, 19, '跳转到第 2 页');
+  assertRange(await visibleIndexes(page), 12, 23, '跳转到第 2 页');
 
   // 重复注入：不应出现第二个分页条
   await inject(page);
@@ -127,7 +175,7 @@ async function runVmTest(browser, base) {
   await page.evaluate(() => window.__fakeReset());
   await page.waitForFunction(() => window.BILI_TOOLS?.dyn?.page === 1, null, { timeout: 10000 });
   await page.waitForTimeout(300);
-  assertRange(await visibleIndexes(page), 0, 9, '列表重置后回到第 1 页');
+  assertRange(await visibleIndexes(page), 0, 11, '列表重置后回到第 1 页');
 
   assert.deepEqual(pageErrors, [], '不应有未捕获的页面异常');
   await context.close();
@@ -141,10 +189,10 @@ async function runVmRebuildTest(browser, base) {
   await page.goto(`${base}/440900637/dynamic?total=25&rebuild=1`, { waitUntil: 'load' });
   await inject(page);
   await waitActive(page);
-  assertRange(await visibleIndexes(page), 0, 9, '第 1 页');
+  assertRange(await visibleIndexes(page), 0, 11, '第 1 页');
   await page.locator('.bili-tools-dyn-pager .vui_pagenation--btn-side[aria-label="下一页"]').click();
   await waitPage(page, 2);
-  assertRange(await visibleIndexes(page), 10, 19, '整列表重绘后仍应正确隐藏');
+  assertRange(await visibleIndexes(page), 12, 23, '整列表重绘后仍应正确隐藏');
   await context.close();
   console.log('整列表重绘测试通过');
 }
@@ -160,10 +208,10 @@ async function runDomTest(browser, base) {
   await waitActive(page);
   let st = await debugState(page);
   assert.equal(st.adapter, 'dom', '没有 __vue__ 时应退化为 DOM 模式');
-  assertRange(await visibleIndexes(page), 0, 9, '第 1 页');
+  assertRange(await visibleIndexes(page), 0, 11, '第 1 页');
   await page.locator('.bili-tools-dyn-pager .vui_pagenation--btn-side[aria-label="下一页"]').click();
   await waitPage(page, 2);
-  assertRange(await visibleIndexes(page), 10, 19, 'DOM 模式第 2 页');
+  assertRange(await visibleIndexes(page), 12, 23, 'DOM 模式第 2 页');
   await page.screenshot({ path: path.join(SHOTS, 'dyn-dom-page2.png'), fullPage: true });
   assert.deepEqual(pageErrors, [], '不应有未捕获的页面异常');
   await context.close();
@@ -188,12 +236,14 @@ async function runSmallListTest(browser, base) {
   await page.goto(`${base}/440900637/dynamic?total=12`, { waitUntil: 'load' });
   await inject(page);
   await waitActive(page);
-  assertRange(await visibleIndexes(page), 0, 9, '12 条时第 1 页显示 10 条');
-  await page.locator('.bili-tools-dyn-pager .vui_pagenation--btn-num', { hasText: /^2$/ }).click();
-  await waitPage(page, 2);
-  assertRange(await visibleIndexes(page), 10, 11, '12 条时第 2 页显示剩下 2 条');
+  assertRange(await visibleIndexes(page), 0, 11, '12 条正好一页（每页 12 条）');
   st = await debugState(page);
-  assert.equal(st.totalPages, 2);
+  assert.equal(st.totalPages, 1, '12 条应为 1 页');
+  assert.equal(
+    await page.locator('.bili-tools-dyn-pager .vui_pagenation--btn-side[aria-label="下一页"]').isVisible(),
+    false,
+    '12 条时下一页应隐藏',
+  );
   await context.close();
   console.log('少量数据测试通过');
 }

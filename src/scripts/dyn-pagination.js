@@ -9,9 +9,11 @@ import { addStyle } from '../shared/style.js';
 import { createPager } from '../shared/pager.js';
 import { toast } from '../shared/toast.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const SCOPE = 'dyn';
-const PAGE_SIZE = 10;
+// 与 B 站动态列表每次自动加载的条数对齐（接口每页约 12 条），
+// 这样滚到底触发的原生加载正好是“下一页”，下一页可以立即打开。
+const PAGE_SIZE = 12;
 const LIST_SELECTOR = '.bili-dyn-list';
 const ITEMS_SELECTOR = '.bili-dyn-list__items';
 const ITEM_SELECTOR = '.bili-dyn-list__item';
@@ -53,6 +55,8 @@ const CSS = `
 .bili-tools-dyn-pager .vui_pagenation-go__count{color:var(--text2,#61666d)}
 .bili-tools-dyn-pager.is-busy .vui_pagenation--btn{pointer-events:none;opacity:.6}
 .bili-tools-dyn-active .bili-dyn-list-no-more{display:none!important}
+/* 原生加载条在分页模式下隐藏：滚到底的预取不应把分页条往下顶 */
+.bili-tools-dyn-active .bili-dyn-list-loading{display:none!important}
 `;
 
 // ---------------------------------------------------------------------------
@@ -159,7 +163,8 @@ function createVmAdapter(vm) {
     getCount: () => (Array.isArray(vm.list) ? vm.list.length : 0),
     canLoad: () => {
       const status = vm.status;
-      return status !== 'NO_MORE' && status !== 'EMPTY' && status !== 'ERROR';
+      // ERROR / PAUSED 仍允许重试（交给分页按钮触发），只有明确没有更多/空列表才停止
+      return status !== 'NO_MORE' && status !== 'EMPTY';
     },
     getLoading: () => vm.status === 'LOADING',
     getStatus: () => vm.status,
@@ -337,11 +342,23 @@ async function ensureLoaded(adapter, need) {
     const before = adapter.getCount();
     await adapter.load();
     try {
-      await waitFor(() => adapter.getCount() > before || !adapter.canLoad(), {
-        timeout: LOAD_TIMEOUT,
-        interval: 150,
-        label: 'load-more',
-      });
+      await waitFor(
+        () => {
+          if (adapter.getCount() > before) return true;
+          if (!adapter.canLoad()) return true;
+          // 失败/暂停时不必等满超时
+          if (typeof adapter.getStatus === 'function') {
+            const status = adapter.getStatus();
+            if (status === 'ERROR' || status === 'PAUSED') return true;
+          }
+          return false;
+        },
+        {
+          timeout: LOAD_TIMEOUT,
+          interval: 150,
+          label: 'load-more',
+        },
+      );
     } catch {
       throw new Error('加载超时');
     }
@@ -456,14 +473,19 @@ function bindObserver() {
     target,
     (mutations) => {
       let relevant = false;
+      let listChanged = false;
       for (const mutation of mutations) {
         // 忽略我们自己分页条内部的重绘（update 会重建按钮）
         if (isOurNode(mutation.target)) continue;
         if (mutation.type !== 'childList') continue;
         if (!mutation.addedNodes.length && !mutation.removedNodes.length) continue;
         relevant = true;
-        break;
+        // 列表条目有增删：立即套用可见性，避免自动加载的新条目闪一下 / 把分页条顶下去
+        if (state.listEl && (mutation.target === state.listEl || state.listEl.contains(mutation.target))) {
+          listChanged = true;
+        }
       }
+      if (listChanged) applyPage();
       if (relevant) scheduleRescan();
     },
     { childList: true, subtree: true },

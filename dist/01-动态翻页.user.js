@@ -1,12 +1,12 @@
 /* eslint-disable */
 // 由 build.mjs 自动生成，请修改 src/ 下源码后重新构建。
 // ==UserScript==
-// @name         B站动态翻页（每页10条）
-// @name:zh-CN   B站动态翻页（每页10条）
+// @name         B站动态翻页（每页12条）
+// @name:zh-CN   B站动态翻页（每页12条）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.1.0
-// @description  把 B 站用户空间动态页改为翻页浏览，每页 10 条；支持上一页/下一页/跳页，复用 B 站原生分页样式。
-// @description:zh-CN 把 B 站用户空间动态页改为翻页浏览，每页 10 条；支持上一页/下一页/跳页，复用 B 站原生分页样式。
+// @version      0.2.0
+// @description  把 B 站用户空间动态页改为翻页浏览，每页 12 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生分页样式。
+// @description:zh-CN 把 B 站用户空间动态页改为翻页浏览，每页 12 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生分页样式。
 // @author       bili-space-tools
 // @license      MIT
 // @icon         https://www.bilibili.com/favicon.ico
@@ -465,9 +465,9 @@
   }
 
   // src/scripts/dyn-pagination.js
-  var VERSION = "0.1.0";
+  var VERSION = "0.2.0";
   var SCOPE = "dyn";
-  var PAGE_SIZE = 10;
+  var PAGE_SIZE = 12;
   var LIST_SELECTOR = ".bili-dyn-list";
   var ITEMS_SELECTOR = ".bili-dyn-list__items";
   var ITEM_SELECTOR = ".bili-dyn-list__item";
@@ -503,6 +503,8 @@
 .bili-tools-dyn-pager .vui_pagenation-go__count{color:var(--text2,#61666d)}
 .bili-tools-dyn-pager.is-busy .vui_pagenation--btn{pointer-events:none;opacity:.6}
 .bili-tools-dyn-active .bili-dyn-list-no-more{display:none!important}
+/* 原生加载条在分页模式下隐藏：滚到底的预取不应把分页条往下顶 */
+.bili-tools-dyn-active .bili-dyn-list-loading{display:none!important}
 `;
   function isDynamicRoute() {
     return /^\/\d+\/dynamic(?:\/|$)/.test(location.pathname);
@@ -593,7 +595,7 @@
       getCount: () => Array.isArray(vm.list) ? vm.list.length : 0,
       canLoad: () => {
         const status = vm.status;
-        return status !== "NO_MORE" && status !== "EMPTY" && status !== "ERROR";
+        return status !== "NO_MORE" && status !== "EMPTY";
       },
       getLoading: () => vm.status === "LOADING",
       getStatus: () => vm.status,
@@ -754,11 +756,22 @@
       const before = adapter.getCount();
       await adapter.load();
       try {
-        await waitFor(() => adapter.getCount() > before || !adapter.canLoad(), {
-          timeout: LOAD_TIMEOUT,
-          interval: 150,
-          label: "load-more"
-        });
+        await waitFor(
+          () => {
+            if (adapter.getCount() > before) return true;
+            if (!adapter.canLoad()) return true;
+            if (typeof adapter.getStatus === "function") {
+              const status = adapter.getStatus();
+              if (status === "ERROR" || status === "PAUSED") return true;
+            }
+            return false;
+          },
+          {
+            timeout: LOAD_TIMEOUT,
+            interval: 150,
+            label: "load-more"
+          }
+        );
       } catch {
         throw new Error("加载超时");
       }
@@ -858,13 +871,17 @@
       target,
       (mutations) => {
         let relevant = false;
+        let listChanged = false;
         for (const mutation of mutations) {
           if (isOurNode(mutation.target)) continue;
           if (mutation.type !== "childList") continue;
           if (!mutation.addedNodes.length && !mutation.removedNodes.length) continue;
           relevant = true;
-          break;
+          if (state.listEl && (mutation.target === state.listEl || state.listEl.contains(mutation.target))) {
+            listChanged = true;
+          }
         }
+        if (listChanged) applyPage();
         if (relevant) scheduleRescan();
       },
       { childList: true, subtree: true }
