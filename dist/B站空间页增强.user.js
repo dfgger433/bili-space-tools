@@ -2,7 +2,7 @@
 // @name         B站空间页增强（动态翻页/图文翻页/统一行高）
 // @name:zh-CN   B站空间页增强（动态翻页/图文翻页/统一行高）
 // @namespace    https://github.com/dfgger433/bili-space-tools
-// @version      1.0.5
+// @version      1.0.6
 // @description  单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @description:zh-CN 单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @author       dfgger433
@@ -2504,7 +2504,7 @@
   }
 
   // src/scripts/opus-uniform-row.js
-  var VERSION3 = "0.4.3";
+  var VERSION3 = "0.4.4";
   var SCOPE3 = "opus-row";
   var STYLE_ID4 = "bili-tools-opus-row-style";
   var HIDE_CLASS = "bt-opus-row-hidden";
@@ -2536,6 +2536,7 @@
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail{position:absolute!important;inset:0!important;height:auto!important}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover!important}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .opus-card__title{flex:0 0 auto}
+.${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS}.${NATIVE_CLIP_CLASS} .opus-card > .opus-card--with-cover{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;height:100%}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${GRID_CLASS}.${READY_CLASS} .${ITEM_CLASS} .opus-card--only-text .opus-card__icons{margin-top:auto}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card{height:100%;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden}
@@ -2546,6 +2547,7 @@
 .${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail{position:absolute!important;inset:0!important;height:auto!important}
 .${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .bili-cover-card__thumbnail img{object-fit:cover!important}
 .${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .opus-card__title{flex:0 0 auto}
+.${BT_ROOT_CLASS} > .bt-opus-item.${NATIVE_CLIP_CLASS} .opus-card > .opus-card--with-cover{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;height:100%}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card--only-text{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 .${BT_ROOT_CLASS} > .bt-opus-item .opus-card--only-text .opus-card__icons{margin-top:auto}
 `;
@@ -3339,7 +3341,7 @@
   }
 
   // src/scripts/bili-space-tools.js
-  var VERSION4 = "1.0.5";
+  var VERSION4 = "1.0.6";
   var SCOPE4 = "all";
   var GLOBAL_KEY3 = "__biliToolsAllLoaded__";
   var log5 = createLogger(SCOPE4);

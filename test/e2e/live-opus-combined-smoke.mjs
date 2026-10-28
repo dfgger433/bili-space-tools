@@ -60,6 +60,7 @@ async function main() {
         const img = el.querySelector('.bili-cover-card img');
         const card = el.querySelector('.opus-card');
         const title = el.querySelector('.opus-card__title');
+        const cover = el.querySelector('.bili-cover-card');
         const cardRect = card?.getBoundingClientRect();
         const titleRect = title?.getBoundingClientRect();
         groups.get(top).push({
@@ -68,6 +69,8 @@ async function main() {
           nativeClip: el.classList.contains('bt-opus-row-native-clip'),
           titleFits: !titleRect || !cardRect ? true : titleRect.bottom <= cardRect.bottom + 1,
           imgLoaded: !img || (img.complete && img.naturalWidth > 0),
+          coverHeight: cover ? Math.round(cover.getBoundingClientRect().height * 100) / 100 : 0,
+          imgHeight: img ? Math.round(img.getBoundingClientRect().height * 100) / 100 : 0,
         });
       }
       return {
@@ -84,6 +87,8 @@ async function main() {
             natives: list.map((x) => x.nativeClip),
             titleFits: list.map((x) => x.titleFits),
             imgLoaded: list.map((x) => x.imgLoaded),
+            coverHeights: list.map((x) => x.coverHeight),
+            imgHeights: list.map((x) => x.imgHeight),
           })),
       };
     });
@@ -121,6 +126,10 @@ async function main() {
         assert.ok(row.imgLoaded.every(Boolean), `${label}网格图片应全部加载`);
         if (stat && stat.clipped) {
           assert.ok(row.natives.some(Boolean), `${label}裁剪行应有 B 站默认裁剪卡片`);
+          assert.ok(
+            row.natives.some((native, index) => native && row.coverHeights[index] > 0 && row.imgHeights[index] > 0),
+            `${label}裁剪卡片封面高度必须大于 0（不能只剩标题）`,
+          );
           assert.ok(row.fits.every((fit) => fit === 'contain' || fit === 'cover'), `${label}裁剪行只允许 contain/cover`);
         } else {
           assert.ok(row.fits.every((fit) => fit === 'contain'), `${label}未裁剪行封面应完整显示`);
