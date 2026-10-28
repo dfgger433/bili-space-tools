@@ -32,7 +32,7 @@ export const scripts = [
       name: 'B站图文翻页（每页20条）',
       nameZh: 'B站图文翻页（每页20条）',
       namespace: 'https://github.com/bili-space-tools/bili-space-tools',
-      version: '0.4.0',
+      version: '0.4.1',
       description: '把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式；油猴菜单里可切换图片压缩。',
       descriptionZh: '把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式；油猴菜单里可切换图片压缩。',
       author: 'bili-space-tools',
@@ -55,6 +55,7 @@ export const scripts = [
     },
   },
 ];
+
 
 
 

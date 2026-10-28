@@ -4,7 +4,7 @@
 // @name         B站图文翻页（每页20条）
 // @name:zh-CN   B站图文翻页（每页20条）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.4.0
+// @version      0.4.1
 // @description  把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式；油猴菜单里可切换图片压缩。
 // @description:zh-CN 把 B 站用户空间图文页改为翻页浏览，每页 20 条（与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生卡片与分页样式；油猴菜单里可切换图片压缩。
 // @author       bili-space-tools
@@ -1178,7 +1178,7 @@
 .bt-opus-title-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;line-break:anywhere}
 .bt-opus-text-clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;line-break:anywhere;white-space:pre-wrap}
 .bt-opus-item .opus-card{width:100%}
-.bt-opus-pager{margin:8px auto 24px}
+.bt-opus-pager{display:flex!important;align-items:center!important;justify-content:center!important;width:100%;margin:8px 0 24px}
 .bt-opus-pager .vui_pagenation--btn-side.vui_button--disabled,
 .bt-opus-pager .vui_pagenation--btn-more.vui_button--disabled{display:none}
 .bili-tools-opus-active .opus-footer{padding:24px 0 32px}
