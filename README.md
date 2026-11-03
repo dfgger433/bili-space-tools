@@ -161,6 +161,13 @@ npm install
 npm run build   # 生成 dist/B站空间页增强.user.js
 ```
 
+## 鸣谢
+
+本项目在接口字段、页面行为理解和测试资料方面参考了以下开源项目，感谢作者和维护者：
+
+- [bilibili-api-collect](https://github.com/bilibili-plugins/bilibili-api-collect)：B 站接口与字段的收集、整理资料。
+- [nemo2011/bilibili-api](https://github.com/nemo2011/bilibili-api)：B 站 API 文档与实现参考。
+
 ## License
 
 [MIT](LICENSE)
