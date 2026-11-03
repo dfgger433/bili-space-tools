@@ -4,6 +4,8 @@ const STORAGE_KEY = 'biliTools:opus';
 export const DEFAULT_SETTINGS = {
   // 开启后封面加载压缩缩略图（@640w.webp，快）；关闭则加载原图（画质最好，但慢、流量大）
   compressImages: true,
+  // 每页显示的图文数量，默认 20（与 B 站原生自动加载批次一致）
+  pageSize: 20,
 };
 
 function readParsed() {

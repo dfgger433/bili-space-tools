@@ -75,6 +75,8 @@ async function openPage(browser, base, query = '') {
     };
     // 模拟油猴的 unsafeWindow（页面上下文里就是 window）
     window.unsafeWindow = window;
+    window.__promptResult = '20';
+    window.prompt = () => window.__promptResult;
   });
   // 用 addInitScript 模拟 document-start 注入（脚本需要提前装接口观察器）
   await page.addInitScript({ path: SCRIPT });
@@ -315,7 +317,7 @@ async function runCompressionToggleTest(browser, base) {
 
   let src = await firstImgSrc();
   assert.match(src, /@640w\.webp$/, '默认应加载压缩图');
-  assert.deepEqual(await menuNames(), ['图片压缩：开'], '油猴菜单应显示“图片压缩：开”');
+  assert.deepEqual([...(await menuNames())].sort(), ['图片压缩：开', '每页数量：20'].sort(), '油猴菜单应显示图片压缩和每页数量');
   assert.equal((await opusState(page)).compressImages, true);
 
   // 通过配套菜单脚本关闭压缩
@@ -326,14 +328,14 @@ async function runCompressionToggleTest(browser, base) {
   await page.waitForTimeout(300);
   src = await firstImgSrc();
   assert.doesNotMatch(src, /@640w\.webp/, '关闭后应加载原图');
-  assert.deepEqual(await menuNames(), ['图片压缩：关'], '菜单文案应更新为关');
+  assert.deepEqual([...(await menuNames())].sort(), ['图片压缩：关', '每页数量：20'].sort(), '菜单文案应更新为关');
   assert.equal((await opusState(page)).compressImages, false);
 
   // 刷新后保持关闭
   await page.reload({ waitUntil: 'load' });
   await page.waitForFunction(() => window.BILI_TOOLS?.opus?.active === true, null, { timeout: 25000 });
   await page.waitForTimeout(600);
-  assert.deepEqual(await menuNames(), ['图片压缩：关'], '刷新后菜单应保持关闭');
+  assert.deepEqual([...(await menuNames())].sort(), ['图片压缩：关', '每页数量：20'].sort(), '刷新后菜单应保持关闭');
   src = await firstImgSrc();
   assert.doesNotMatch(src, /@640w\.webp/, '刷新后仍应加载原图');
 
@@ -345,7 +347,7 @@ async function runCompressionToggleTest(browser, base) {
   await page.waitForTimeout(300);
   src = await firstImgSrc();
   assert.match(src, /@640w\.webp$/, '重新开启后应加载压缩图');
-  assert.deepEqual(await menuNames(), ['图片压缩：开'], '菜单文案应更新为开');
+  assert.deepEqual([...(await menuNames())].sort(), ['图片压缩：开', '每页数量：20'].sort(), '菜单文案应更新为开');
   assert.deepEqual(errors, [], '不应有未捕获异常');
   await context.close();
   console.log('油猴菜单图片压缩开关测试通过');
@@ -364,6 +366,63 @@ async function runVueBlockedTest(browser, base) {
   console.log('Vue 访问失败回退测试通过');
 }
 
+async function runPageSizeTest(browser, base) {
+  console.log('--- 油猴菜单：每页数量 ---');
+  const { context, page, errors } = await openPage(browser, base);
+  const menuNames = () => page.evaluate(() => (window.__gmMenuCommands || []).map((item) => item.name));
+  const clickPageSizeMenu = () =>
+    page.evaluate(() => {
+      const item = (window.__gmMenuCommands || []).find((cmd) => cmd.name.startsWith('每页数量'));
+      if (!item) throw new Error('未找到每页数量菜单');
+      item.callback(new MouseEvent('click'));
+    });
+
+  assert.equal((await opusState(page)).pageSize, 20, '默认每页 20 条');
+  assert.ok((await menuNames()).includes('每页数量：20'), '菜单应显示每页数量：20');
+  assert.equal(await itemCount(page), 20);
+
+  await page.evaluate(() => {
+    window.__promptResult = '10';
+  });
+  await clickPageSizeMenu();
+  await page.waitForFunction(() => window.BILI_TOOLS?.opus?.state?.pageSize === 10, null, { timeout: 5000 });
+  await page.waitForTimeout(400);
+  assert.equal(await itemCount(page), 10, '每页 10 条时第 1 页应 10 张');
+  assert.ok((await menuNames()).includes('每页数量：10'), '菜单应更新为每页数量：10');
+
+  await page.evaluate(() => window.BILI_TOOLS.opus.next());
+  await page.waitForFunction(() => window.BILI_TOOLS?.opus?.state?.page === 2, null, { timeout: 15000 });
+  await page.waitForTimeout(300);
+  assert.equal(await itemCount(page), 10, '每页 10 条时第 2 页应 10 张');
+
+  await page.evaluate(() => {
+    window.__promptResult = '30';
+  });
+  await clickPageSizeMenu();
+  await page.waitForFunction(
+    () => window.BILI_TOOLS?.opus?.state?.pageSize === 30 && window.BILI_TOOLS?.opus?.state?.page === 1,
+    null,
+    { timeout: 5000 },
+  );
+  await page.waitForFunction(() => document.querySelectorAll('.bt-opus-item').length === 30, null, {
+    timeout: 20000,
+  });
+  assert.equal(await itemCount(page), 30, '每页 30 条时第 1 页应 30 张');
+  assert.ok((await menuNames()).includes('每页数量：30'), '菜单应更新为每页数量：30');
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => window.BILI_TOOLS?.opus?.active === true, null, { timeout: 25000 });
+  await page.waitForFunction(() => window.BILI_TOOLS?.opus?.state?.pageSize === 30, null, { timeout: 5000 });
+  await page.waitForFunction(() => document.querySelectorAll('.bt-opus-item').length === 30, null, {
+    timeout: 20000,
+  });
+  assert.ok((await menuNames()).includes('每页数量：30'), '刷新后每页数量应保持 30');
+  assert.equal(await itemCount(page), 30, '刷新后每页 30 条');
+  assert.deepEqual(errors, [], '每页数量菜单不应产生未捕获异常');
+  await context.close();
+  console.log('油猴菜单每页数量测试通过');
+}
+
 async function main() {
   await mkdir(SHOTS, { recursive: true });
   const executablePath = await findBrowser();
@@ -374,6 +433,7 @@ async function main() {
     await runVueTest(browser, server.url);
     await runNetworkTest(browser, server.url);
     await runCompressionToggleTest(browser, server.url);
+    await runPageSizeTest(browser, server.url);
     await runVueBlockedTest(browser, server.url);
   } finally {
     await browser.close();
