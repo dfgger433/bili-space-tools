@@ -9,7 +9,7 @@ import { addStyle } from '../shared/style.js';
 import { createPager } from '../shared/pager.js';
 import { toast } from '../shared/toast.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const SCOPE = 'dyn';
 // 默认与 B 站动态列表每次自动加载的条数对齐（接口每页约 12 条），
 // 这样滚到底触发的原生加载正好是“下一页”，下一页可以立即打开；每页数量可自定义。
@@ -50,6 +50,8 @@ const state = {
 };
 
 let fillingFirstPage = false;
+let pageSizeMenuId = null;
+let pageSizeMenuText = '';
 
 // ---------------------------------------------------------------------------
 // 样式：分页条定位 + 原生 vui 变量兜底；按钮/输入框外观完全复用 B 站原生 CSS
@@ -71,6 +73,20 @@ const CSS = `
 // ---------------------------------------------------------------------------
 // 路由 / 启动
 // ---------------------------------------------------------------------------
+function pageWindow() {
+  try {
+    if (typeof unsafeWindow !== 'undefined' && unsafeWindow) return unsafeWindow;
+  } catch {
+    /* ignore */
+  }
+  return window;
+}
+
+function pageDocument() {
+  const W = pageWindow();
+  return (W && W.document) || document;
+}
+
 function isDynamicRoute() {
   return /^\/\d+\/dynamic(?:\/|$)/.test(location.pathname);
 }
@@ -87,6 +103,14 @@ function normalizePageSize(value) {
 
 function loadPageSize() {
   try {
+    if (typeof GM_getValue === 'function') {
+      const value = GM_getValue(PAGE_SIZE_KEY);
+      if (value !== undefined && value !== null && value !== '') return normalizePageSize(value);
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
     const raw = localStorage.getItem(PAGE_SIZE_KEY);
     if (raw !== null) return normalizePageSize(raw);
   } catch {
@@ -97,6 +121,11 @@ function loadPageSize() {
 
 function savePageSize() {
   try {
+    if (typeof GM_setValue === 'function') GM_setValue(PAGE_SIZE_KEY, String(state.pageSize));
+  } catch {
+    /* ignore */
+  }
+  try {
     localStorage.setItem(PAGE_SIZE_KEY, String(state.pageSize));
   } catch {
     /* ignore */
@@ -105,6 +134,35 @@ function savePageSize() {
 
 function applyStoredPageSize() {
   state.pageSize = loadPageSize();
+}
+
+function pageSizeMenuName() {
+  return `每页数量：${state.pageSize}`;
+}
+
+function registerPageSizeMenu() {
+  if (typeof GM_registerMenuCommand !== 'function') return;
+  const name = pageSizeMenuName();
+  if (pageSizeMenuId !== null && name === pageSizeMenuText) return;
+  try {
+    if (pageSizeMenuId !== null && typeof GM_unregisterMenuCommand === 'function') {
+      GM_unregisterMenuCommand(pageSizeMenuId);
+      pageSizeMenuId = null;
+    }
+    const onClick = () => promptPageSize();
+    try {
+      pageSizeMenuId = GM_registerMenuCommand(name, onClick, {
+        autoClose: true,
+        title: `点击输入每页显示数量（${MIN_PAGE_SIZE}–${MAX_PAGE_SIZE}，默认 ${DEFAULT_PAGE_SIZE}）`,
+      });
+    } catch {
+      // 旧版油猴不支持 options 参数
+      pageSizeMenuId = GM_registerMenuCommand(name, onClick);
+    }
+    pageSizeMenuText = name;
+  } catch (err) {
+    log.debug('注册每页数量菜单失败', err);
+  }
 }
 
 function syncPageSizeControl() {
@@ -126,7 +184,7 @@ function syncPageSizeControl() {
 }
 
 function promptPageSize() {
-  const raw = window.prompt(
+  const raw = pageWindow().prompt(
     `每页显示数量（${MIN_PAGE_SIZE}–${MAX_PAGE_SIZE}，默认 ${DEFAULT_PAGE_SIZE}）`,
     String(state.pageSize),
   );
@@ -149,6 +207,7 @@ function setPageSize(value) {
   state.pageSize = next;
   state.page = 1;
   savePageSize();
+  registerPageSizeMenu();
   applyPage();
   updatePager();
   syncPageSizeControl();
@@ -227,11 +286,15 @@ async function waitForData(listEl, timeout) {
 /** 找到动态列表的 Vue 2 实例（.bili-dyn-list 的 __vue__） */
 function getVm(listEl) {
   if (!listEl) return null;
-  const candidates = [listEl, listEl.querySelector(ITEMS_SELECTOR), listEl.parentElement];
+  // 带 GM 权限后脚本运行在沙箱里，沙箱 DOM 上读不到页面 __vue__；
+  // 用 unsafeWindow.document 取页面上下文中的列表节点。
+  const doc = pageDocument();
+  const pageList = doc.querySelector(LIST_SELECTOR) || listEl;
+  const candidates = [pageList, pageList.querySelector(ITEMS_SELECTOR), pageList.parentElement];
   for (const el of candidates) {
     if (el && el.__vue__ && Array.isArray(el.__vue__.list)) return el.__vue__;
   }
-  let node = listEl;
+  let node = pageList;
   while (node) {
     if (node.__vue__ && Array.isArray(node.__vue__.list)) return node.__vue__;
     node = node.parentElement;
@@ -706,8 +769,9 @@ function watchRoute() {
 // 调试入口
 // ---------------------------------------------------------------------------
 function exposeDebug() {
-  window.BILI_TOOLS = window.BILI_TOOLS || {};
-  window.BILI_TOOLS.dyn = {
+  const W = pageWindow();
+  W.BILI_TOOLS = W.BILI_TOOLS || {};
+  W.BILI_TOOLS.dyn = {
     version: VERSION,
     get active() {
       return state.active;
@@ -754,8 +818,10 @@ function exposeDebug() {
 // 入口
 // ---------------------------------------------------------------------------
 function main() {
+  applyStoredPageSize();
   startStyle();
   exposeDebug();
+  registerPageSizeMenu();
   window.addEventListener('popstate', watchRoute);
   window.addEventListener('hashchange', watchRoute);
   setInterval(watchRoute, 500);
@@ -769,4 +835,6 @@ if (!window[GLOBAL_KEY]) {
 } else {
   exposeDebug();
 }
+
+
 

@@ -4,7 +4,7 @@
 // @name         B站动态翻页（每页数量可自定义）
 // @name:zh-CN   B站动态翻页（每页数量可自定义）
 // @namespace    https://github.com/bili-space-tools/bili-space-tools
-// @version      0.3.0
+// @version      0.4.0
 // @description  把 B 站用户空间动态页改为翻页浏览，每页数量可自定义（默认 12 条，与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生分页样式。
 // @description:zh-CN 把 B 站用户空间动态页改为翻页浏览，每页数量可自定义（默认 12 条，与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生分页样式。
 // @author       bili-space-tools
@@ -13,7 +13,11 @@
 // @match        *://*.bilibili.com/*/dynamic
 // @match        *://*.bilibili.com/*/dynamic/*
 // @run-at       document-idle
-// @grant        none
+// @grant        unsafeWindow
+// @grant        GM_registerMenuCommand
+// @grant        GM_unregisterMenuCommand
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @noframes
 // ==/UserScript==
 
@@ -465,7 +469,7 @@
   }
 
   // src/scripts/dyn-pagination.js
-  var VERSION = "0.3.0";
+  var VERSION = "0.4.0";
   var SCOPE = "dyn";
   var DEFAULT_PAGE_SIZE = 12;
   var MIN_PAGE_SIZE = 1;
@@ -501,6 +505,8 @@
     nextBootAt: 0
   };
   var fillingFirstPage = false;
+  var pageSizeMenuId = null;
+  var pageSizeMenuText = "";
   var CSS2 = `
 .bili-tools-pager.bili-tools-dyn-pager{width:fit-content;margin:24px auto 8px;padding:0 8px}
 .bili-tools-dyn-pager .vui_pagenation--btns{display:flex;align-items:center}
@@ -514,6 +520,17 @@
 /* 原生加载条在分页模式下隐藏：滚到底的预取不应把分页条往下顶 */
 .bili-tools-dyn-active .bili-dyn-list-loading{display:none!important}
 `;
+  function pageWindow() {
+    try {
+      if (typeof unsafeWindow !== "undefined" && unsafeWindow) return unsafeWindow;
+    } catch {
+    }
+    return window;
+  }
+  function pageDocument() {
+    const W = pageWindow();
+    return W && W.document || document;
+  }
   function isDynamicRoute() {
     return /^\/\d+\/dynamic(?:\/|$)/.test(location.pathname);
   }
@@ -527,6 +544,13 @@
   }
   function loadPageSize() {
     try {
+      if (typeof GM_getValue === "function") {
+        const value = GM_getValue(PAGE_SIZE_KEY);
+        if (value !== void 0 && value !== null && value !== "") return normalizePageSize(value);
+      }
+    } catch {
+    }
+    try {
       const raw = localStorage.getItem(PAGE_SIZE_KEY);
       if (raw !== null) return normalizePageSize(raw);
     } catch {
@@ -535,12 +559,42 @@
   }
   function savePageSize() {
     try {
+      if (typeof GM_setValue === "function") GM_setValue(PAGE_SIZE_KEY, String(state.pageSize));
+    } catch {
+    }
+    try {
       localStorage.setItem(PAGE_SIZE_KEY, String(state.pageSize));
     } catch {
     }
   }
   function applyStoredPageSize() {
     state.pageSize = loadPageSize();
+  }
+  function pageSizeMenuName() {
+    return `每页数量：${state.pageSize}`;
+  }
+  function registerPageSizeMenu() {
+    if (typeof GM_registerMenuCommand !== "function") return;
+    const name = pageSizeMenuName();
+    if (pageSizeMenuId !== null && name === pageSizeMenuText) return;
+    try {
+      if (pageSizeMenuId !== null && typeof GM_unregisterMenuCommand === "function") {
+        GM_unregisterMenuCommand(pageSizeMenuId);
+        pageSizeMenuId = null;
+      }
+      const onClick = () => promptPageSize();
+      try {
+        pageSizeMenuId = GM_registerMenuCommand(name, onClick, {
+          autoClose: true,
+          title: `点击输入每页显示数量（${MIN_PAGE_SIZE}–${MAX_PAGE_SIZE}，默认 ${DEFAULT_PAGE_SIZE}）`
+        });
+      } catch {
+        pageSizeMenuId = GM_registerMenuCommand(name, onClick);
+      }
+      pageSizeMenuText = name;
+    } catch (err) {
+      log.debug("注册每页数量菜单失败", err);
+    }
   }
   function syncPageSizeControl() {
     if (!state.pager) return;
@@ -560,7 +614,7 @@
     if (state.pageSizeEl.parentElement !== state.pager.el) state.pager.el.appendChild(state.pageSizeEl);
   }
   function promptPageSize() {
-    const raw = window.prompt(
+    const raw = pageWindow().prompt(
       `每页显示数量（${MIN_PAGE_SIZE}–${MAX_PAGE_SIZE}，默认 ${DEFAULT_PAGE_SIZE}）`,
       String(state.pageSize)
     );
@@ -582,6 +636,7 @@
     state.pageSize = next;
     state.page = 1;
     savePageSize();
+    registerPageSizeMenu();
     applyPage();
     updatePager();
     syncPageSizeControl();
@@ -654,11 +709,13 @@
   }
   function getVm(listEl) {
     if (!listEl) return null;
-    const candidates = [listEl, listEl.querySelector(ITEMS_SELECTOR), listEl.parentElement];
+    const doc = pageDocument();
+    const pageList = doc.querySelector(LIST_SELECTOR) || listEl;
+    const candidates = [pageList, pageList.querySelector(ITEMS_SELECTOR), pageList.parentElement];
     for (const el of candidates) {
       if (el && el.__vue__ && Array.isArray(el.__vue__.list)) return el.__vue__;
     }
-    let node = listEl;
+    let node = pageList;
     while (node) {
       if (node.__vue__ && Array.isArray(node.__vue__.list)) return node.__vue__;
       node = node.parentElement;
@@ -1076,8 +1133,9 @@
     }
   }
   function exposeDebug() {
-    window.BILI_TOOLS = window.BILI_TOOLS || {};
-    window.BILI_TOOLS.dyn = {
+    const W = pageWindow();
+    W.BILI_TOOLS = W.BILI_TOOLS || {};
+    W.BILI_TOOLS.dyn = {
       version: VERSION,
       get active() {
         return state.active;
@@ -1120,8 +1178,10 @@
     };
   }
   function main() {
+    applyStoredPageSize();
     startStyle();
     exposeDebug();
+    registerPageSizeMenu();
     window.addEventListener("popstate", watchRoute);
     window.addEventListener("hashchange", watchRoute);
     setInterval(watchRoute, 500);

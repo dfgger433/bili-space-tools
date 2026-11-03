@@ -301,6 +301,63 @@ async function runPageSizeTest(browser, base) {
   console.log('每页数量自定义测试通过');
 }
 
+async function runPageSizeMenuTest(browser, base) {
+  console.log('--- 油猴菜单：每页数量 ---');
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on('pageerror', (err) => pageErrors.push(String(err)));
+  await page.goto(`${base}/440900637/dynamic?total=25`, { waitUntil: 'load' });
+  await page.evaluate(() => {
+    const commands = [];
+    let nextId = 1;
+    window.__gmMenuCommands = commands;
+    window.GM_registerMenuCommand = (name, callback) => {
+      const existing = commands.find((item) => item.name === name);
+      if (existing) {
+        existing.callback = callback;
+        return existing.id;
+      }
+      const id = nextId;
+      nextId += 1;
+      commands.push({ id, name, callback });
+      return id;
+    };
+    window.GM_unregisterMenuCommand = (id) => {
+      const index = commands.findIndex((item) => item.id === id);
+      if (index >= 0) commands.splice(index, 1);
+    };
+    window.GM_getValue = (key, defaultValue) => {
+      const raw = localStorage.getItem(`__btgm__${key}`);
+      return raw === null ? defaultValue : raw;
+    };
+    window.GM_setValue = (key, value) => {
+      localStorage.setItem(`__btgm__${key}`, String(value));
+    };
+    window.unsafeWindow = window;
+    window.__promptResult = '8';
+    window.prompt = () => window.__promptResult;
+  });
+  await inject(page);
+  await waitActive(page);
+
+  const menuNames = () => page.evaluate(() => (window.__gmMenuCommands || []).map((item) => item.name));
+  assert.ok((await menuNames()).includes('每页数量：12'), '油猴菜单应出现每页数量：12');
+  await page.evaluate(() => {
+    const item = (window.__gmMenuCommands || []).find((cmd) => cmd.name.startsWith('每页数量'));
+    if (!item) throw new Error('未找到每页数量菜单');
+    item.callback(new MouseEvent('click'));
+  });
+  await page.waitForFunction(() => window.BILI_TOOLS?.dyn?.state?.pageSize === 8, null, { timeout: 5000 });
+  await page.waitForTimeout(300);
+  assertRange(await visibleIndexes(page), 0, 7, '菜单设为 8 后第 1 页');
+  assert.ok((await menuNames()).includes('每页数量：8'), '菜单文案应更新为每页数量：8');
+  assert.equal((await page.locator('.bili-tools-dyn-pagesize').innerText()).trim(), '每页 8 条', '页面按钮应同步');
+  assert.deepEqual(pageErrors, [], '每页数量菜单不应产生未捕获异常');
+  await context.close();
+  console.log('油猴菜单每页数量测试通过');
+}
+
 async function main() {
   await mkdir(SHOTS, { recursive: true });
   const executablePath = await findBrowser();
@@ -313,6 +370,7 @@ async function main() {
     await runDomTest(browser, server.url);
     await runSmallListTest(browser, server.url);
     await runPageSizeTest(browser, server.url);
+    await runPageSizeMenuTest(browser, server.url);
   } finally {
     await browser.close();
     await server.close();

@@ -9,7 +9,7 @@ export const scripts = [
       name: 'B站动态翻页（每页数量可自定义）',
       nameZh: 'B站动态翻页（每页数量可自定义）',
       namespace: 'https://github.com/bili-space-tools/bili-space-tools',
-      version: '0.3.0',
+      version: '0.4.0',
       description: '把 B 站用户空间动态页改为翻页浏览，每页数量可自定义（默认 12 条，与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生分页样式。',
       descriptionZh: '把 B 站用户空间动态页改为翻页浏览，每页数量可自定义（默认 12 条，与 B 站自动加载条数一致）；保留 B 站原生自动加载作为下一页预取，复用 B 站原生分页样式。',
       author: 'bili-space-tools',
@@ -20,9 +20,16 @@ export const scripts = [
         '*://*.bilibili.com/*/dynamic/*',
       ],
       runAt: 'document-idle',
-      grants: ['none'],
+      grants: [
+        'unsafeWindow',
+        'GM_registerMenuCommand',
+        'GM_unregisterMenuCommand',
+        'GM_getValue',
+        'GM_setValue',
+      ],
       noframes: true,
     },
   },
 ];
+
 
