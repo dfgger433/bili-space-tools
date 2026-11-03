@@ -2,7 +2,7 @@
 // @name         B站空间页增强（动态翻页/图文翻页/统一行高）
 // @name:zh-CN   B站空间页增强（动态翻页/图文翻页/统一行高）
 // @namespace    https://github.com/dfgger433/bili-space-tools
-// @version      1.0.6
+// @version      1.1.0
 // @description  单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @description:zh-CN 单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @author       dfgger433
@@ -1484,7 +1484,9 @@
   var STORAGE_KEY = "biliTools:opus";
   var DEFAULT_SETTINGS = {
     // 开启后封面加载压缩缩略图（@640w.webp，快）；关闭则加载原图（画质最好，但慢、流量大）
-    compressImages: true
+    compressImages: true,
+    // 每页显示的图文数量，默认 20（与 B 站原生自动加载批次一致）
+    pageSize: 20
   };
   function readParsed() {
     try {
@@ -1809,7 +1811,7 @@
   }
 
   // src/scripts/opus-pagination.js
-  var VERSION2 = "0.4.2";
+  var VERSION2 = "0.6.0";
   var SCOPE2 = "opus";
   var STYLE_ID3 = "bili-tools-opus-style";
   var ACTIVE_CLASS2 = "bili-tools-opus-active";
@@ -1818,6 +1820,9 @@
   var HEADER_OFFSET2 = 64;
   var BOOT_TIMEOUT2 = 2e4;
   var LOAD_TIMEOUT2 = 2e4;
+  var DEFAULT_PAGE_SIZE = PAGE_SIZE2;
+  var MIN_PAGE_SIZE = 1;
+  var MAX_PAGE_SIZE = 100;
   var log3 = createLogger(SCOPE2);
   var capture = createCaptureState();
   var running2 = false;
@@ -1827,7 +1832,7 @@
     booting: false,
     adapter: null,
     page: 1,
-    pageSize: PAGE_SIZE2,
+    pageSize: DEFAULT_PAGE_SIZE,
     items: [],
     loaded: 0,
     lastLoaded: 0,
@@ -1852,6 +1857,7 @@
     resizeTimer: null,
     pollTimer: null
   };
+  var fillingFirstPage = false;
   var CSS3 = `
 .bili-tools-opus-active .opus-body{position:relative}
 /* 不直接用 display:none：保留原生 feed 的宽度，WaterfallGrid 在 resize 时才不会把 --container-width 算成最小列数 */
@@ -2021,6 +2027,8 @@
   }
   var menuCommandId = null;
   var menuCommandName = "";
+  var pageSizeCommandId = null;
+  var pageSizeCommandName = "";
   function compressionMenuName() {
     return `图片压缩：${state2.settings.compressImages ? "开" : "关"}`;
   }
@@ -2061,6 +2069,75 @@
     registerCompressionMenu();
     if (state2.active) {
       toast(next ? "已开启图片压缩（封面加载更快）" : "已关闭图片压缩（封面加载原图）", { duration: 1800 });
+    }
+  }
+  function normalizePageSize(value) {
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n)) return DEFAULT_PAGE_SIZE;
+    return Math.min(MAX_PAGE_SIZE, Math.max(MIN_PAGE_SIZE, n));
+  }
+  function applyStoredPageSize() {
+    const next = normalizePageSize(state2.settings.pageSize);
+    state2.settings.pageSize = next;
+    state2.pageSize = next;
+  }
+  function pageSizeMenuName() {
+    return `每页数量：${state2.pageSize}`;
+  }
+  function promptPageSize() {
+    const raw = window.prompt(
+      `每页显示数量（${MIN_PAGE_SIZE}–${MAX_PAGE_SIZE}，默认 ${DEFAULT_PAGE_SIZE}）`,
+      String(state2.pageSize)
+    );
+    if (raw == null) return;
+    setPageSize(raw);
+  }
+  function setPageSize(value) {
+    const raw = Number(value);
+    if (!Number.isFinite(raw) || raw < MIN_PAGE_SIZE || raw > MAX_PAGE_SIZE) {
+      toast(`请输入 ${MIN_PAGE_SIZE}–${MAX_PAGE_SIZE} 的整数`, { type: "error" });
+      registerPageSizeMenu();
+      return false;
+    }
+    const next = Math.round(raw);
+    if (next === state2.pageSize && state2.settings.pageSize === next) {
+      registerPageSizeMenu();
+      return true;
+    }
+    state2.settings.pageSize = next;
+    state2.pageSize = next;
+    state2.page = 1;
+    saveSettings(state2.settings);
+    if (state2.active) {
+      refresh(true);
+      void fillFirstPage();
+    }
+    registerPageSizeMenu();
+    if (state2.active) toast(`每页数量已设为 ${next} 条`, { duration: 1800 });
+    return true;
+  }
+  function registerPageSizeMenu() {
+    if (window.top !== window) return;
+    if (typeof GM_registerMenuCommand !== "function") return;
+    const name = pageSizeMenuName();
+    if (pageSizeCommandId !== null && name === pageSizeCommandName) return;
+    try {
+      if (pageSizeCommandId !== null && typeof GM_unregisterMenuCommand === "function") {
+        GM_unregisterMenuCommand(pageSizeCommandId);
+        pageSizeCommandId = null;
+      }
+      const onClick = () => promptPageSize();
+      try {
+        pageSizeCommandId = GM_registerMenuCommand(name, onClick, {
+          autoClose: true,
+          title: `点击输入每页显示数量（${MIN_PAGE_SIZE}–${MAX_PAGE_SIZE}，默认 ${DEFAULT_PAGE_SIZE}）`
+        });
+      } catch {
+        pageSizeCommandId = GM_registerMenuCommand(name, onClick);
+      }
+      pageSizeCommandName = name;
+    } catch (err) {
+      log3.debug("注册每页数量菜单失败", err);
     }
   }
   function resolveLayout() {
@@ -2126,19 +2203,22 @@
     state2.columns = layout2.columns;
     state2.hasMore = hasMoreRaw !== false;
     if (state2.hasMore) {
-      const maxLoadedPage = Math.max(1, Math.ceil(loaded / PAGE_SIZE2));
+      const maxLoadedPage = Math.max(1, Math.ceil(loaded / state2.pageSize));
       if (state2.page > maxLoadedPage + 1) state2.page = maxLoadedPage;
     } else {
-      const last = totalPages(loaded, PAGE_SIZE2);
+      const last = totalPages(loaded, state2.pageSize);
       if (state2.page > last) state2.page = last;
     }
     ensurePager2();
     if (loaded > 0) {
       maybeRender(force);
-      const preloadStart = state2.page * PAGE_SIZE2;
-      preloadCovers(state2.items.slice(preloadStart, preloadStart + PAGE_SIZE2 * 2));
+      const preloadStart = state2.page * state2.pageSize;
+      preloadCovers(state2.items.slice(preloadStart, preloadStart + state2.pageSize * 2));
     }
     updatePager2();
+    if (loaded > 0 && state2.page === 1 && loaded < state2.pageSize && state2.hasMore && !state2.busy && !fillingFirstPage) {
+      void fillFirstPage();
+    }
   }
   var preloadedCovers = /* @__PURE__ */ new Set();
   function preloadCovers(items) {
@@ -2154,13 +2234,13 @@
   }
   function currentSlice() {
     let page = state2.page;
-    let start5 = (page - 1) * PAGE_SIZE2;
-    let slice = state2.items.slice(start5, start5 + PAGE_SIZE2);
+    let start5 = (page - 1) * state2.pageSize;
+    let slice = state2.items.slice(start5, start5 + state2.pageSize);
     if (!slice.length && state2.loaded > 0) {
-      page = totalPages(state2.loaded, PAGE_SIZE2);
+      page = totalPages(state2.loaded, state2.pageSize);
       state2.page = page;
-      start5 = (page - 1) * PAGE_SIZE2;
-      slice = state2.items.slice(start5, start5 + PAGE_SIZE2);
+      start5 = (page - 1) * state2.pageSize;
+      slice = state2.items.slice(start5, start5 + state2.pageSize);
     }
     return { page, slice };
   }
@@ -2207,14 +2287,14 @@
   }
   function updatePager2() {
     if (!state2.pager) return;
-    const total = state2.hasMore ? null : totalPages(state2.loaded, PAGE_SIZE2);
+    const total = state2.hasMore ? null : totalPages(state2.loaded, state2.pageSize);
     state2.pager.update({
       page: state2.page,
       totalPages: total,
       hasMore: state2.hasMore,
       loadedCount: state2.loaded,
       totalCount: total ? state2.loaded : null,
-      pageSize: PAGE_SIZE2,
+      pageSize: state2.pageSize,
       busy: state2.busy,
       busyText: state2.busyText
     });
@@ -2261,17 +2341,38 @@
     }
     refresh();
   }
+  async function fillFirstPage() {
+    if (!state2.active || state2.busy) return;
+    if (state2.page !== 1 || state2.loaded >= state2.pageSize || !state2.hasMore) return;
+    fillingFirstPage = true;
+    state2.busy = true;
+    state2.busyText = `正在加载第 1 页（已加载 ${state2.loaded} / ${state2.pageSize} 个）…`;
+    updatePager2();
+    try {
+      await ensureLoaded2(state2.pageSize);
+    } catch (err) {
+      toast(`加载第 1 页失败：${err.message}`, { type: "error" });
+    } finally {
+      fillingFirstPage = false;
+      state2.busy = false;
+      state2.busyText = "";
+      if (state2.active) {
+        refresh(true);
+        updatePager2();
+      }
+    }
+  }
   async function goTo2(page) {
     if (!state2.active || !state2.adapter || state2.busy) return false;
     if (!state2.loaded) return false;
     let target = Math.max(1, Math.floor(Number(page) || 1));
     if (!state2.hasMore) {
-      target = Math.min(target, totalPages(state2.loaded, PAGE_SIZE2));
+      target = Math.min(target, totalPages(state2.loaded, state2.pageSize));
     }
-    const need = target * PAGE_SIZE2;
+    const need = target * state2.pageSize;
     if (state2.loaded < need && state2.hasMore) {
-      const pagesAhead = target - Math.max(1, Math.ceil(state2.loaded / PAGE_SIZE2));
-      const requests = Math.ceil((need - state2.loaded) / PAGE_SIZE2);
+      const pagesAhead = target - Math.max(1, Math.ceil(state2.loaded / state2.pageSize));
+      const requests = Math.ceil((need - state2.loaded) / state2.pageSize);
       if (pagesAhead > 6 && requests > 6) {
         const ok = window.confirm(`跳转到第 ${target} 页还需要加载约 ${requests} 次，继续吗？`);
         if (!ok) return false;
@@ -2290,7 +2391,7 @@
       state2.busy = false;
       state2.busyText = "";
     }
-    const last = totalPages(state2.loaded, PAGE_SIZE2);
+    const last = totalPages(state2.loaded, state2.pageSize);
     if (target > last) {
       target = last;
       toast(`没有更多内容了，已停在最后一页（第 ${last} 页）`, { duration: 2600 });
@@ -2435,7 +2536,7 @@
         return {
           active: state2.active,
           page: state2.page,
-          totalPages: state2.hasMore ? null : totalPages(state2.loaded, PAGE_SIZE2),
+          totalPages: state2.hasMore ? null : totalPages(state2.loaded, state2.pageSize),
           loaded: state2.loaded,
           hasMore: state2.hasMore,
           adapter: state2.adapter ? state2.adapter.kind : null,
@@ -2443,6 +2544,7 @@
           columns: state2.columns,
           tab: state2.tab,
           busy: state2.busy,
+          pageSize: state2.pageSize,
           compressImages: Boolean(state2.settings.compressImages)
         };
       },
@@ -2450,6 +2552,7 @@
       next: () => goTo2(state2.page + 1),
       prev: () => goTo2(state2.page - 1),
       setCompressImages: (value) => setCompressImages(value),
+      setPageSize: (value) => setPageSize(value),
       refresh: () => {
         if (state2.active) refresh(true);
         else void boot2();
@@ -2461,10 +2564,12 @@
     if (running2) return;
     running2 = true;
     window[GLOBAL_KEY2] = { version: VERSION2, startedAt: Date.now() };
+    applyStoredPageSize();
     startStyle2();
     installCapture(onCapture);
     exposeDebug2();
     registerCompressionMenu();
+    registerPageSizeMenu();
     window.addEventListener("popstate", watchRoute2);
     window.addEventListener("hashchange", watchRoute2);
     mainTimer2 = setInterval(watchRoute2, 500);
@@ -2490,6 +2595,14 @@
       }
       menuCommandId = null;
       menuCommandName = "";
+    }
+    if (pageSizeCommandId !== null && typeof GM_unregisterMenuCommand === "function") {
+      try {
+        GM_unregisterMenuCommand(pageSizeCommandId);
+      } catch {
+      }
+      pageSizeCommandId = null;
+      pageSizeCommandName = "";
     }
     delete window[GLOBAL_KEY2];
     log3.info("图文翻页脚本已停止");
@@ -3341,7 +3454,7 @@
   }
 
   // src/scripts/bili-space-tools.js
-  var VERSION4 = "1.0.6";
+  var VERSION4 = "1.1.0";
   var SCOPE4 = "all";
   var GLOBAL_KEY3 = "__biliToolsAllLoaded__";
   var log5 = createLogger(SCOPE4);

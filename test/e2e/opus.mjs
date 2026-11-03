@@ -360,6 +360,63 @@ async function runCompressionToggleTest(browser, base) {
   console.log('油猴菜单图片压缩开关测试通过');
 }
 
+async function runPageSizeTest(browser, base) {
+  console.log('--- 单脚本：每页数量菜单 ---');
+  const { context, page, errors } = await openPage(browser, base, '', { withRow: false });
+  const menuNames = () => page.evaluate(() => (window.__gmMenuCommands || []).map((item) => item.name));
+  const clickPageSizeMenu = () =>
+    page.evaluate(() => {
+      const item = (window.__gmMenuCommands || []).find((cmd) => cmd.name.startsWith('每页数量'));
+      if (!item) throw new Error('未找到每页数量菜单');
+      item.callback(new MouseEvent('click'));
+    });
+
+  assert.equal((await opusState(page)).pageSize, 20, '默认每页 20 条');
+  assert.ok((await menuNames()).includes('每页数量：20'), '菜单应显示每页数量：20');
+  assert.equal(await itemCount(page), 20);
+
+  await page.evaluate(() => {
+    window.__promptResult = '10';
+  });
+  await clickPageSizeMenu();
+  await page.waitForFunction(() => window.BILI_TOOLS?.opus?.state?.pageSize === 10, null, { timeout: 5000 });
+  await page.waitForTimeout(400);
+  assert.equal(await itemCount(page), 10, '每页 10 条时第 1 页应 10 张');
+  assert.ok((await menuNames()).includes('每页数量：10'), '菜单应更新为每页数量：10');
+
+  await page.evaluate(() => window.BILI_TOOLS.opus.next());
+  await page.waitForFunction(() => window.BILI_TOOLS?.opus?.state?.page === 2, null, { timeout: 15000 });
+  await page.waitForTimeout(300);
+  assert.equal(await itemCount(page), 10, '每页 10 条时第 2 页应 10 张');
+
+  await page.evaluate(() => {
+    window.__promptResult = '30';
+  });
+  await clickPageSizeMenu();
+  await page.waitForFunction(
+    () => window.BILI_TOOLS?.opus?.state?.pageSize === 30 && window.BILI_TOOLS?.opus?.state?.page === 1,
+    null,
+    { timeout: 5000 },
+  );
+  await page.waitForFunction(() => document.querySelectorAll('.bt-opus-item').length === 30, null, {
+    timeout: 20000,
+  });
+  assert.equal(await itemCount(page), 30, '每页 30 条时第 1 页应 30 张');
+  assert.ok((await menuNames()).includes('每页数量：30'), '菜单应更新为每页数量：30');
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => window.BILI_TOOLS?.opus?.active === true, null, { timeout: 25000 });
+  await page.waitForFunction(() => window.BILI_TOOLS?.opus?.state?.pageSize === 30, null, { timeout: 5000 });
+  await page.waitForFunction(() => document.querySelectorAll('.bt-opus-item').length === 30, null, {
+    timeout: 20000,
+  });
+  assert.ok((await menuNames()).includes('每页数量：30'), '刷新后每页数量应保持 30');
+  assert.equal(await itemCount(page), 30, '刷新后每页 30 条');
+  assert.deepEqual(errors, [], '每页数量菜单不应产生未捕获异常');
+  await context.close();
+  console.log('单脚本每页数量菜单测试通过');
+}
+
 async function runVueBlockedTest(browser, base) {
   console.log('--- 页面 Vue 访问被阻止时回退抓包 ---');
   const { context, page, errors } = await openPage(browser, base, '?throwvue=1');
@@ -614,6 +671,7 @@ async function main() {
     await runVueTest(browser, server.url);
     await runNetworkTest(browser, server.url);
     await runCompressionToggleTest(browser, server.url);
+    await runPageSizeTest(browser, server.url);
     await runVueBlockedTest(browser, server.url);
     await runUniformRowsTest(browser, server.url);
     await runModuleToggleTest(browser, server.url);
