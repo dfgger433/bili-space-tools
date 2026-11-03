@@ -248,6 +248,59 @@ async function runSmallListTest(browser, base) {
   console.log('少量数据测试通过');
 }
 
+async function runPageSizeTest(browser, base) {
+  console.log('--- 每页数量自定义测试 ---');
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on('pageerror', (err) => pageErrors.push(String(err)));
+  await page.goto(`${base}/440900637/dynamic?total=25`, { waitUntil: 'load' });
+  await inject(page);
+  await waitActive(page);
+
+  const control = page.locator('.bili-tools-dyn-pagesize');
+  assert.equal(await control.count(), 1, '应有每页数量按钮');
+  assert.equal((await control.innerText()).trim(), '每页 12 条', '默认每页 12 条');
+  assert.equal((await debugState(page)).pageSize, 12);
+  assertRange(await visibleIndexes(page), 0, 11, '默认第 1 页');
+
+  await page.evaluate(() => {
+    window.__promptResult = '6';
+    window.prompt = () => window.__promptResult;
+  });
+  await control.click();
+  await page.waitForFunction(() => window.BILI_TOOLS?.dyn?.state?.pageSize === 6, null, { timeout: 5000 });
+  await page.waitForTimeout(300);
+  assertRange(await visibleIndexes(page), 0, 5, '每页 6 条第 1 页');
+  assert.equal((await control.innerText()).trim(), '每页 6 条');
+  await page.evaluate(() => window.BILI_TOOLS.dyn.goTo(2));
+  await waitPage(page, 2);
+  assertRange(await visibleIndexes(page), 6, 11, '每页 6 条第 2 页');
+
+  await page.evaluate(() => {
+    window.__promptResult = '18';
+  });
+  await control.click();
+  await page.waitForFunction(() => window.BILI_TOOLS?.dyn?.state?.pageSize === 18, null, { timeout: 5000 });
+  await page.waitForFunction(() => window.BILI_TOOLS?.dyn?.page === 1, null, { timeout: 5000 });
+  await waitLoaded(page, 18);
+  assertRange(await visibleIndexes(page), 0, 17, '每页 18 条第 1 页（自动加载）');
+  await page.evaluate(() => window.BILI_TOOLS.dyn.goTo(2));
+  await waitPage(page, 2);
+  assertRange(await visibleIndexes(page), 18, 24, '每页 18 条第 2 页');
+
+  await page.reload({ waitUntil: 'load' });
+  await inject(page);
+  await waitActive(page);
+  assert.equal((await debugState(page)).pageSize, 18, '刷新后每页数量应保持 18');
+  assert.equal((await control.innerText()).trim(), '每页 18 条');
+  await waitLoaded(page, 18);
+  assertRange(await visibleIndexes(page), 0, 17, '刷新后第 1 页 18 条');
+  assert.deepEqual(pageErrors, [], '每页数量不应产生未捕获异常');
+  await context.close();
+  console.log('每页数量自定义测试通过');
+}
+
 async function main() {
   await mkdir(SHOTS, { recursive: true });
   const executablePath = await findBrowser();
@@ -259,6 +312,7 @@ async function main() {
     await runVmRebuildTest(browser, server.url);
     await runDomTest(browser, server.url);
     await runSmallListTest(browser, server.url);
+    await runPageSizeTest(browser, server.url);
   } finally {
     await browser.close();
     await server.close();
