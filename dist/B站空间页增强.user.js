@@ -2,7 +2,7 @@
 // @name         B站空间页增强（动态翻页/图文翻页/统一行高）
 // @name:zh-CN   B站空间页增强（动态翻页/图文翻页/统一行高）
 // @namespace    https://github.com/dfgger433/bili-space-tools
-// @version      1.1.0
+// @version      1.2.0
 // @description  单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @description:zh-CN 单个脚本包含动态翻页、图文翻页、图文统一行高三个模块；油猴菜单里可分别开关三个模块，并保留图片压缩开关。
 // @author       dfgger433
@@ -508,9 +508,12 @@
   }
 
   // src/scripts/dyn-pagination.js
-  var VERSION = "0.2.1";
+  var VERSION = "0.4.0";
   var SCOPE = "dyn";
-  var PAGE_SIZE = 12;
+  var DEFAULT_PAGE_SIZE = 12;
+  var MIN_PAGE_SIZE = 1;
+  var MAX_PAGE_SIZE = 100;
+  var PAGE_SIZE_KEY = "biliTools:dyn:pageSize";
   var LIST_SELECTOR = ".bili-dyn-list";
   var ITEMS_SELECTOR = ".bili-dyn-list__items";
   var ITEM_SELECTOR = ".bili-dyn-list__item";
@@ -529,6 +532,8 @@
     active: false,
     booting: false,
     page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    pageSizeEl: null,
     listEl: null,
     adapter: null,
     pager: null,
@@ -541,6 +546,9 @@
     navToken: 0,
     nextBootAt: 0
   };
+  var fillingFirstPage = false;
+  var pageSizeMenuId = null;
+  var pageSizeMenuText = "";
   var CSS2 = `
 .bili-tools-pager.bili-tools-dyn-pager{width:fit-content;margin:24px auto 8px;padding:0 8px}
 .bili-tools-dyn-pager .vui_pagenation--btns{display:flex;align-items:center}
@@ -548,6 +556,8 @@
 .bili-tools-dyn-pager .vui_pagenation--btn-more.vui_button--disabled{display:none}
 .bili-tools-dyn-pager .vui_pagenation-go__count{color:var(--text2,#61666d)}
 .bili-tools-dyn-pager.is-busy .vui_pagenation--btn{pointer-events:none;opacity:.6}
+.bili-tools-dyn-pagesize{margin-left:12px;padding:2px 10px;border:1px solid var(--line_regular,#e3e5e7);border-radius:6px;background:var(--bg1,#fff);color:var(--text1,#18191c);font-size:13px;line-height:22px;white-space:nowrap;cursor:pointer}
+.bili-tools-dyn-pagesize:hover{color:var(--brand_blue,#00aeec);border-color:var(--brand_blue,#00aeec)}
 .bili-tools-dyn-active .bili-dyn-list-no-more{display:none!important}
 /* 原生加载条在分页模式下隐藏：滚到底的预取不应把分页条往下顶 */
 .bili-tools-dyn-active .bili-dyn-list-loading{display:none!important}
@@ -557,6 +567,146 @@
   }
   function startStyle() {
     addStyle(STYLE_ID2, CSS2);
+  }
+  function normalizePageSize(value) {
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n)) return DEFAULT_PAGE_SIZE;
+    return Math.min(MAX_PAGE_SIZE, Math.max(MIN_PAGE_SIZE, n));
+  }
+  function loadPageSize() {
+    try {
+      if (typeof GM_getValue === "function") {
+        const value = GM_getValue(PAGE_SIZE_KEY);
+        if (value !== void 0 && value !== null && value !== "") return normalizePageSize(value);
+      }
+    } catch {
+    }
+    try {
+      const raw = localStorage.getItem(PAGE_SIZE_KEY);
+      if (raw !== null) return normalizePageSize(raw);
+    } catch {
+    }
+    return DEFAULT_PAGE_SIZE;
+  }
+  function savePageSize() {
+    try {
+      if (typeof GM_setValue === "function") GM_setValue(PAGE_SIZE_KEY, String(state.pageSize));
+    } catch {
+    }
+    try {
+      localStorage.setItem(PAGE_SIZE_KEY, String(state.pageSize));
+    } catch {
+    }
+  }
+  function applyStoredPageSize() {
+    state.pageSize = loadPageSize();
+  }
+  function pageSizeMenuName() {
+    return `每页数量：${state.pageSize}`;
+  }
+  function registerPageSizeMenu() {
+    if (typeof GM_registerMenuCommand !== "function") return;
+    const name = pageSizeMenuName();
+    if (pageSizeMenuId !== null && name === pageSizeMenuText) return;
+    try {
+      if (pageSizeMenuId !== null && typeof GM_unregisterMenuCommand === "function") {
+        GM_unregisterMenuCommand(pageSizeMenuId);
+        pageSizeMenuId = null;
+      }
+      const onClick = () => promptPageSize();
+      try {
+        pageSizeMenuId = GM_registerMenuCommand(name, onClick, {
+          autoClose: true,
+          title: `点击输入每页显示数量（${MIN_PAGE_SIZE}–${MAX_PAGE_SIZE}，默认 ${DEFAULT_PAGE_SIZE}）`
+        });
+      } catch {
+        pageSizeMenuId = GM_registerMenuCommand(name, onClick);
+      }
+      pageSizeMenuText = name;
+    } catch (err) {
+      log.debug("注册每页数量菜单失败", err);
+    }
+  }
+  function unregisterPageSizeMenu() {
+    if (pageSizeMenuId !== null && typeof GM_unregisterMenuCommand === "function") {
+      try {
+        GM_unregisterMenuCommand(pageSizeMenuId);
+      } catch {
+      }
+    }
+    pageSizeMenuId = null;
+    pageSizeMenuText = "";
+  }
+  function syncPageSizeControl() {
+    if (!state.pager) return;
+    if (!state.pageSizeEl) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "bili-tools-dyn-pagesize";
+      button.title = `点击修改每页显示数量（${MIN_PAGE_SIZE}–${MAX_PAGE_SIZE}，默认 ${DEFAULT_PAGE_SIZE}）`;
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        promptPageSize();
+      });
+      state.pageSizeEl = button;
+    }
+    state.pageSizeEl.textContent = `每页 ${state.pageSize} 条`;
+    if (state.pageSizeEl.parentElement !== state.pager.el) state.pager.el.appendChild(state.pageSizeEl);
+  }
+  function promptPageSize() {
+    const raw = window.prompt(
+      `每页显示数量（${MIN_PAGE_SIZE}–${MAX_PAGE_SIZE}，默认 ${DEFAULT_PAGE_SIZE}）`,
+      String(state.pageSize)
+    );
+    if (raw == null) return;
+    setPageSize(raw);
+  }
+  function setPageSize(value) {
+    const raw = Number(value);
+    if (!Number.isFinite(raw) || raw < MIN_PAGE_SIZE || raw > MAX_PAGE_SIZE) {
+      toast(`请输入 ${MIN_PAGE_SIZE}–${MAX_PAGE_SIZE} 的整数`, { type: "error" });
+      syncPageSizeControl();
+      return false;
+    }
+    const next = Math.round(raw);
+    if (next === state.pageSize) {
+      syncPageSizeControl();
+      return true;
+    }
+    state.pageSize = next;
+    state.page = 1;
+    savePageSize();
+    registerPageSizeMenu();
+    applyPage();
+    updatePager();
+    syncPageSizeControl();
+    scrollToTop();
+    void fillFirstPage();
+    toast(`每页数量已设为 ${next} 条`, { duration: 1800 });
+    return true;
+  }
+  async function fillFirstPage() {
+    if (!state.active || !state.adapter || state.busy || fillingFirstPage) return;
+    if (state.page !== 1 || state.adapter.getCount() >= state.pageSize || !state.adapter.canLoad()) return;
+    fillingFirstPage = true;
+    state.busy = true;
+    state.busyText = `正在加载第 1 页（已加载 ${state.adapter.getCount()} / ${state.pageSize} 条）…`;
+    updatePager();
+    try {
+      await ensureLoaded(state.adapter, state.pageSize);
+    } catch (err) {
+      toast(`加载第 1 页失败：${err.message}`, { type: "error" });
+    } finally {
+      fillingFirstPage = false;
+      state.busy = false;
+      state.busyText = "";
+      if (state.active) {
+        applyPage();
+        updatePager();
+        syncPageSizeControl();
+      }
+    }
   }
   function maybeBoot() {
     if (!running) return;
@@ -631,6 +781,7 @@
   }
   function activate(listEl) {
     if (state.active) return;
+    applyStoredPageSize();
     state.active = true;
     state.page = 1;
     state.lastLoaded = 0;
@@ -739,8 +890,8 @@
     if (!state.listEl) return;
     const items = itemElements();
     if (!items.length) return;
-    const start5 = (state.page - 1) * PAGE_SIZE;
-    const end = start5 + PAGE_SIZE;
+    const start5 = (state.page - 1) * state.pageSize;
+    const end = start5 + state.pageSize;
     for (let i = 0; i < items.length; i += 1) {
       const el = items[i];
       if (i < start5 || i >= end) {
@@ -748,6 +899,9 @@
       } else if (el.style.display === "none") {
         el.style.removeProperty("display");
       }
+    }
+    if (state.page === 1 && state.adapter && state.adapter.getCount() < state.pageSize && state.adapter.canLoad() && !state.busy && !fillingFirstPage) {
+      void fillFirstPage();
     }
   }
   function getMountPoint() {
@@ -772,13 +926,14 @@
     if (pagerEl.parentElement !== mount || pagerEl.previousElementSibling !== state.listEl) {
       mount.insertBefore(pagerEl, state.listEl.nextSibling);
     }
+    syncPageSizeControl();
     updatePager();
   }
   function updatePager() {
     if (!state.pager || !state.adapter) return;
     const loaded = state.adapter.getCount();
     const hasMore = state.adapter.canLoad();
-    const totalPages2 = !hasMore && loaded > 0 ? Math.max(1, Math.ceil(loaded / PAGE_SIZE)) : null;
+    const totalPages2 = !hasMore && loaded > 0 ? Math.max(1, Math.ceil(loaded / state.pageSize)) : null;
     state.totalPages = totalPages2;
     if (totalPages2 && state.page > totalPages2) state.page = totalPages2;
     state.lastLoaded = loaded;
@@ -788,10 +943,11 @@
       hasMore,
       loadedCount: loaded,
       totalCount: totalPages2 ? loaded : null,
-      pageSize: PAGE_SIZE,
+      pageSize: state.pageSize,
       busy: state.busy,
       busyText: state.busyText
     });
+    syncPageSizeControl();
   }
   function scrollToTop() {
     const listEl = state.listEl;
@@ -858,7 +1014,7 @@
     }
   }
   function estimateRequests(loaded, target) {
-    const missing = Math.max(0, target * PAGE_SIZE - loaded);
+    const missing = Math.max(0, target * state.pageSize - loaded);
     return Math.ceil(missing / API_PAGE_SIZE);
   }
   async function goTo(page, { user = true } = {}) {
@@ -867,11 +1023,11 @@
     let target = Math.max(1, Math.floor(Number(page) || 1));
     const loadedBefore = state.adapter.getCount();
     if (state.totalPages && target > state.totalPages) target = state.totalPages;
-    const need = target * PAGE_SIZE;
+    const need = target * state.pageSize;
     const token = ++state.navToken;
     if (loadedBefore < need && state.adapter.canLoad()) {
       const requests = estimateRequests(loadedBefore, target);
-      const pagesAhead = target - Math.max(1, Math.ceil(loadedBefore / PAGE_SIZE));
+      const pagesAhead = target - Math.max(1, Math.ceil(loadedBefore / state.pageSize));
       if (pagesAhead > 6 && requests > 6) {
         const ok = window.confirm(
           `跳转到第 ${target} 页还需要加载约 ${requests} 次（当前已加载 ${loadedBefore} 条），继续吗？`
@@ -890,7 +1046,7 @@
         toast(`加载第 ${target} 页失败：${err.message}`, { type: "error" });
         const loaded2 = state.adapter.getCount();
         if (loaded2 > 0) {
-          const maxPage = Math.max(1, Math.ceil(loaded2 / PAGE_SIZE));
+          const maxPage = Math.max(1, Math.ceil(loaded2 / state.pageSize));
           state.page = Math.min(target, maxPage);
           applyPage();
           updatePager();
@@ -903,7 +1059,7 @@
     }
     const loaded = state.adapter.getCount();
     if (loaded > 0) {
-      const maxPage = Math.max(1, Math.ceil(loaded / PAGE_SIZE));
+      const maxPage = Math.max(1, Math.ceil(loaded / state.pageSize));
       if (target > maxPage) {
         target = maxPage;
         toast(`没有更多内容了，已停在最后一页（第 ${maxPage} 页）`, { duration: 2600 });
@@ -1059,12 +1215,14 @@
           adapter: state.adapter ? state.adapter.kind : null,
           loaded: state.adapter ? state.adapter.getCount() : 0,
           hasMore: state.adapter ? state.adapter.canLoad() : false,
-          status: state.adapter && state.adapter.getStatus ? state.adapter.getStatus() : ""
+          status: state.adapter && state.adapter.getStatus ? state.adapter.getStatus() : "",
+          pageSize: state.pageSize
         };
       },
       goTo: (page) => goTo(page),
       next: () => goTo(state.page + 1),
       prev: () => goTo(state.page - 1),
+      setPageSize: (value) => setPageSize(value),
       refresh: () => {
         if (!state.active) {
           void boot();
@@ -1080,8 +1238,10 @@
     if (running) return;
     running = true;
     window[GLOBAL_KEY] = { version: VERSION, startedAt: Date.now() };
+    applyStoredPageSize();
     startStyle();
     exposeDebug();
+    registerPageSizeMenu();
     window.addEventListener("popstate", watchRoute);
     window.addEventListener("hashchange", watchRoute);
     mainTimer = setInterval(watchRoute, 500);
@@ -1101,6 +1261,7 @@
     window.removeEventListener("popstate", watchRoute);
     window.removeEventListener("hashchange", watchRoute);
     teardown();
+    unregisterPageSizeMenu();
     state.booting = false;
     state.nextBootAt = 0;
     state.routeKey = "";
@@ -1117,7 +1278,7 @@
   }
 
   // src/opus/model.js
-  var PAGE_SIZE2 = 20;
+  var PAGE_SIZE = 20;
   var DEFAULT_ROW_GUTTER = 18;
   var DEFAULT_COLUMN_GUTTER = 20;
   var THRESHOLD_OF_WATERFALL = 10;
@@ -1820,9 +1981,9 @@
   var HEADER_OFFSET2 = 64;
   var BOOT_TIMEOUT2 = 2e4;
   var LOAD_TIMEOUT2 = 2e4;
-  var DEFAULT_PAGE_SIZE = PAGE_SIZE2;
-  var MIN_PAGE_SIZE = 1;
-  var MAX_PAGE_SIZE = 100;
+  var DEFAULT_PAGE_SIZE2 = PAGE_SIZE;
+  var MIN_PAGE_SIZE2 = 1;
+  var MAX_PAGE_SIZE2 = 100;
   var log3 = createLogger(SCOPE2);
   var capture = createCaptureState();
   var running2 = false;
@@ -1832,7 +1993,7 @@
     booting: false,
     adapter: null,
     page: 1,
-    pageSize: DEFAULT_PAGE_SIZE,
+    pageSize: DEFAULT_PAGE_SIZE2,
     items: [],
     loaded: 0,
     lastLoaded: 0,
@@ -1857,7 +2018,7 @@
     resizeTimer: null,
     pollTimer: null
   };
-  var fillingFirstPage = false;
+  var fillingFirstPage2 = false;
   var CSS3 = `
 .bili-tools-opus-active .opus-body{position:relative}
 /* 不直接用 display:none：保留原生 feed 的宽度，WaterfallGrid 在 resize 时才不会把 --container-width 算成最小列数 */
@@ -2071,37 +2232,37 @@
       toast(next ? "已开启图片压缩（封面加载更快）" : "已关闭图片压缩（封面加载原图）", { duration: 1800 });
     }
   }
-  function normalizePageSize(value) {
+  function normalizePageSize2(value) {
     const n = Math.round(Number(value));
-    if (!Number.isFinite(n)) return DEFAULT_PAGE_SIZE;
-    return Math.min(MAX_PAGE_SIZE, Math.max(MIN_PAGE_SIZE, n));
+    if (!Number.isFinite(n)) return DEFAULT_PAGE_SIZE2;
+    return Math.min(MAX_PAGE_SIZE2, Math.max(MIN_PAGE_SIZE2, n));
   }
-  function applyStoredPageSize() {
-    const next = normalizePageSize(state2.settings.pageSize);
+  function applyStoredPageSize2() {
+    const next = normalizePageSize2(state2.settings.pageSize);
     state2.settings.pageSize = next;
     state2.pageSize = next;
   }
-  function pageSizeMenuName() {
+  function pageSizeMenuName2() {
     return `每页数量：${state2.pageSize}`;
   }
-  function promptPageSize() {
+  function promptPageSize2() {
     const raw = window.prompt(
-      `每页显示数量（${MIN_PAGE_SIZE}–${MAX_PAGE_SIZE}，默认 ${DEFAULT_PAGE_SIZE}）`,
+      `每页显示数量（${MIN_PAGE_SIZE2}–${MAX_PAGE_SIZE2}，默认 ${DEFAULT_PAGE_SIZE2}）`,
       String(state2.pageSize)
     );
     if (raw == null) return;
-    setPageSize(raw);
+    setPageSize2(raw);
   }
-  function setPageSize(value) {
+  function setPageSize2(value) {
     const raw = Number(value);
-    if (!Number.isFinite(raw) || raw < MIN_PAGE_SIZE || raw > MAX_PAGE_SIZE) {
-      toast(`请输入 ${MIN_PAGE_SIZE}–${MAX_PAGE_SIZE} 的整数`, { type: "error" });
-      registerPageSizeMenu();
+    if (!Number.isFinite(raw) || raw < MIN_PAGE_SIZE2 || raw > MAX_PAGE_SIZE2) {
+      toast(`请输入 ${MIN_PAGE_SIZE2}–${MAX_PAGE_SIZE2} 的整数`, { type: "error" });
+      registerPageSizeMenu2();
       return false;
     }
     const next = Math.round(raw);
     if (next === state2.pageSize && state2.settings.pageSize === next) {
-      registerPageSizeMenu();
+      registerPageSizeMenu2();
       return true;
     }
     state2.settings.pageSize = next;
@@ -2110,27 +2271,27 @@
     saveSettings(state2.settings);
     if (state2.active) {
       refresh(true);
-      void fillFirstPage();
+      void fillFirstPage2();
     }
-    registerPageSizeMenu();
+    registerPageSizeMenu2();
     if (state2.active) toast(`每页数量已设为 ${next} 条`, { duration: 1800 });
     return true;
   }
-  function registerPageSizeMenu() {
+  function registerPageSizeMenu2() {
     if (window.top !== window) return;
     if (typeof GM_registerMenuCommand !== "function") return;
-    const name = pageSizeMenuName();
+    const name = pageSizeMenuName2();
     if (pageSizeCommandId !== null && name === pageSizeCommandName) return;
     try {
       if (pageSizeCommandId !== null && typeof GM_unregisterMenuCommand === "function") {
         GM_unregisterMenuCommand(pageSizeCommandId);
         pageSizeCommandId = null;
       }
-      const onClick = () => promptPageSize();
+      const onClick = () => promptPageSize2();
       try {
         pageSizeCommandId = GM_registerMenuCommand(name, onClick, {
           autoClose: true,
-          title: `点击输入每页显示数量（${MIN_PAGE_SIZE}–${MAX_PAGE_SIZE}，默认 ${DEFAULT_PAGE_SIZE}）`
+          title: `点击输入每页显示数量（${MIN_PAGE_SIZE2}–${MAX_PAGE_SIZE2}，默认 ${DEFAULT_PAGE_SIZE2}）`
         });
       } catch {
         pageSizeCommandId = GM_registerMenuCommand(name, onClick);
@@ -2216,8 +2377,8 @@
       preloadCovers(state2.items.slice(preloadStart, preloadStart + state2.pageSize * 2));
     }
     updatePager2();
-    if (loaded > 0 && state2.page === 1 && loaded < state2.pageSize && state2.hasMore && !state2.busy && !fillingFirstPage) {
-      void fillFirstPage();
+    if (loaded > 0 && state2.page === 1 && loaded < state2.pageSize && state2.hasMore && !state2.busy && !fillingFirstPage2) {
+      void fillFirstPage2();
     }
   }
   var preloadedCovers = /* @__PURE__ */ new Set();
@@ -2341,10 +2502,10 @@
     }
     refresh();
   }
-  async function fillFirstPage() {
+  async function fillFirstPage2() {
     if (!state2.active || state2.busy) return;
     if (state2.page !== 1 || state2.loaded >= state2.pageSize || !state2.hasMore) return;
-    fillingFirstPage = true;
+    fillingFirstPage2 = true;
     state2.busy = true;
     state2.busyText = `正在加载第 1 页（已加载 ${state2.loaded} / ${state2.pageSize} 个）…`;
     updatePager2();
@@ -2353,7 +2514,7 @@
     } catch (err) {
       toast(`加载第 1 页失败：${err.message}`, { type: "error" });
     } finally {
-      fillingFirstPage = false;
+      fillingFirstPage2 = false;
       state2.busy = false;
       state2.busyText = "";
       if (state2.active) {
@@ -2552,7 +2713,7 @@
       next: () => goTo2(state2.page + 1),
       prev: () => goTo2(state2.page - 1),
       setCompressImages: (value) => setCompressImages(value),
-      setPageSize: (value) => setPageSize(value),
+      setPageSize: (value) => setPageSize2(value),
       refresh: () => {
         if (state2.active) refresh(true);
         else void boot2();
@@ -2564,12 +2725,12 @@
     if (running2) return;
     running2 = true;
     window[GLOBAL_KEY2] = { version: VERSION2, startedAt: Date.now() };
-    applyStoredPageSize();
+    applyStoredPageSize2();
     startStyle2();
     installCapture(onCapture);
     exposeDebug2();
     registerCompressionMenu();
-    registerPageSizeMenu();
+    registerPageSizeMenu2();
     window.addEventListener("popstate", watchRoute2);
     window.addEventListener("hashchange", watchRoute2);
     mainTimer2 = setInterval(watchRoute2, 500);
@@ -3454,7 +3615,7 @@
   }
 
   // src/scripts/bili-space-tools.js
-  var VERSION4 = "1.1.0";
+  var VERSION4 = "1.2.0";
   var SCOPE4 = "all";
   var GLOBAL_KEY3 = "__biliToolsAllLoaded__";
   var log5 = createLogger(SCOPE4);

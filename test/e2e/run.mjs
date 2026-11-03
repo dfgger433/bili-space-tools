@@ -313,6 +313,62 @@ async function runModuleToggleTest(browser, base) {
   await context.close();
   console.log('动态翻页开关测试通过');
 }
+async function runPageSizeTest(browser, base) {
+  console.log('--- 单脚本：动态每页数量 ---');
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on('pageerror', (err) => pageErrors.push(String(err)));
+  await page.goto(`${base}/440900637/dynamic?total=25`, { waitUntil: 'load' });
+  await inject(page);
+  await waitActive(page);
+  await page.evaluate(() => {
+    window.__promptResult = '8';
+    window.prompt = () => window.__promptResult;
+  });
+
+  const menuNames = () => page.evaluate(() => (window.__gmMenuCommands || []).map((item) => item.name));
+  assert.ok((await menuNames()).includes('每页数量：12'), '单脚本油猴菜单应有每页数量：12');
+  assert.equal((await debugState(page)).pageSize, 12);
+  assertRange(await visibleIndexes(page), 0, 11, '默认第 1 页');
+
+  await page.evaluate(() => {
+    const item = (window.__gmMenuCommands || []).find((cmd) => cmd.name.startsWith('每页数量'));
+    if (!item) throw new Error('未找到每页数量菜单');
+    item.callback(new MouseEvent('click'));
+  });
+  await page.waitForFunction(() => window.BILI_TOOLS?.dyn?.state?.pageSize === 8, null, { timeout: 5000 });
+  await page.waitForTimeout(300);
+  assertRange(await visibleIndexes(page), 0, 7, '菜单设为 8 后第 1 页');
+  assert.ok((await menuNames()).includes('每页数量：8'), '菜单文案应更新');
+  assert.equal((await page.locator('.bili-tools-dyn-pagesize').innerText()).trim(), '每页 8 条');
+  await page.evaluate(() => window.BILI_TOOLS.dyn.goTo(2));
+  await waitPage(page, 2);
+  assertRange(await visibleIndexes(page), 8, 15, '每页 8 条第 2 页');
+
+  await page.evaluate(() => {
+    window.__promptResult = '18';
+  });
+  await page.evaluate(() => {
+    const item = (window.__gmMenuCommands || []).find((cmd) => cmd.name.startsWith('每页数量'));
+    item.callback(new MouseEvent('click'));
+  });
+  await page.waitForFunction(() => window.BILI_TOOLS?.dyn?.state?.pageSize === 18, null, { timeout: 5000 });
+  await page.waitForFunction(() => window.BILI_TOOLS?.dyn?.page === 1, null, { timeout: 5000 });
+  await waitLoaded(page, 18);
+  assertRange(await visibleIndexes(page), 0, 17, '每页 18 条第 1 页（自动加载）');
+
+  await page.reload({ waitUntil: 'load' });
+  await inject(page);
+  await waitActive(page);
+  assert.equal((await debugState(page)).pageSize, 18, '刷新后每页数量应保持 18');
+  await waitLoaded(page, 18);
+  assertRange(await visibleIndexes(page), 0, 17, '刷新后第 1 页 18 条');
+  assert.deepEqual(pageErrors, [], '每页数量不应产生未捕获异常');
+  await context.close();
+  console.log('单脚本动态每页数量测试通过');
+}
+
 async function main() {
   await mkdir(SHOTS, { recursive: true });
   const executablePath = await findBrowser();
@@ -324,6 +380,7 @@ async function main() {
     await runVmRebuildTest(browser, server.url);
     await runDomTest(browser, server.url);
     await runSmallListTest(browser, server.url);
+    await runPageSizeTest(browser, server.url);
     await runModuleToggleTest(browser, server.url);
   } finally {
     await browser.close();
